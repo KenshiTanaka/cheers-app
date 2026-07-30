@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: cheers_backend
+    ports:
+      - "3001:3001"
+    volumes:
+      - cheers_db_data:/app/database.sqlite
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+    restart: always
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: cheers_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3001/api
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  cheers_db_data:

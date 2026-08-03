@@ -4,7 +4,7 @@ WORKDIR /app
 
 # パッケージのインストール（キャッシュ活用）
 COPY package*.json ./
-RUN npm ci --only=production && npm install typescript ts-node-dev @types/node @types/express @types/cors @types/bcryptjs @types/jsonwebtoken @types/sqlite3
+RUN npm install --omit=dev && npm install typescript ts-node-dev @types/node @types/express @types/cors @types/bcryptjs @types/jsonwebtoken @types/sqlite3
 
 # ソースコードをコピー
 COPY . .

@@ -176,22 +176,22 @@ authRouter.post('/passkey/register-verify', async (req, res) => {
     const { verified, registrationInfo } = verification;
 
     if (verified && registrationInfo) {
-      const { credential, credentialDeviceType, credentialBackedUp } = registrationInfo;
+      const { credentialID, credentialPublicKey, counter, credentialDeviceType, credentialBackedUp } = registrationInfo;
 
       // Uint8Array から Base64URL 文字列に安全に変換
-      const pubKeyBase64 = Buffer.from(credential.publicKey).toString('base64');
+      const pubKeyBase64 = Buffer.from(credentialPublicKey).toString('base64');
 
       await dbRun(`
         INSERT INTO authenticators (id, user_id, public_key, counter, device_type, backed_up, transports)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `, [
-        credential.id,
+        credentialID,
         user.id,
         pubKeyBase64,
-        credential.counter,
+        counter,
         credentialDeviceType,
         credentialBackedUp ? 1 : 0,
-        JSON.stringify(credential.transports || [])
+        JSON.stringify(response.response?.transports || [])
       ]);
 
       await dbRun('UPDATE users SET current_challenge = NULL WHERE id = ?', [user.id]);
@@ -271,9 +271,9 @@ authRouter.post('/passkey/login-verify', async (req, res) => {
         'http://localhost'
       ],
       expectedRPID: req.hostname,
-      credential: {
-        id: passkey.id,
-        publicKey: new Uint8Array(Buffer.from(passkey.public_key, 'base64')),
+      authenticator: {
+        credentialID: passkey.id,
+        credentialPublicKey: new Uint8Array(Buffer.from(passkey.public_key, 'base64')),
         counter: passkey.counter,
         transports: passkey.transports ? JSON.parse(passkey.transports) : undefined,
       },

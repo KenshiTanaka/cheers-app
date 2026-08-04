@@ -35,7 +35,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
       if (!res.ok) throw new Error(optionsData.error || '登録初期化に失敗しました');
 
       // 2. ブラウザ生体認証ダイアログ（Face ID / Touch ID / Windows Hello）起動
-      const attResp = await startRegistration({ optionsJSON: optionsData });
+      const attResp = await startRegistration(optionsData);
 
       // 3. 署名検証とサーバDB保存
       const verifyRes = await fetch('/api/auth/passkey/register-verify', {

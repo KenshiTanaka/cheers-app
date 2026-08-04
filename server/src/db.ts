@@ -1,7 +1,6 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import bcrypt from 'bcryptjs';
-
 import fs from 'fs';
 
 const dataDir = process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.resolve(__dirname, '../data');
@@ -43,8 +42,9 @@ export const dbAll = <T = any>(sql: string, params: any[] = []): Promise<T[]> =>
 
 // テーブル初期化 ＆ 初期シード挿入
 export async function initDB() {
-  db.serialize(async () => {
-    db.run(`
+  try {
+    // テーブル作成をシーケンシャルかつ完全に完了させる
+    await dbRun(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
@@ -58,7 +58,7 @@ export async function initDB() {
       );
     `);
 
-    db.run(`
+    await dbRun(`
       CREATE TABLE IF NOT EXISTS shops (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -76,7 +76,7 @@ export async function initDB() {
       );
     `);
 
-    db.run(`
+    await dbRun(`
       CREATE TABLE IF NOT EXISTS reviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         shop_id INTEGER NOT NULL,
@@ -89,7 +89,9 @@ export async function initDB() {
         comment TEXT DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+    `);
 
+    await dbRun(`
       CREATE TABLE IF NOT EXISTS authenticators (
         id TEXT PRIMARY KEY,
         user_id INTEGER NOT NULL,
@@ -109,9 +111,10 @@ export async function initDB() {
       // カラムが既に存在する場合は無視
     }
 
-    // シードデータ挿入
+    // 初期データチェック＆投入
     const row = await dbGet<{ count: number }>('SELECT count(*) as count FROM users');
     if (!row || row.count === 0) {
+      console.log('[DB] Seeding initial user and shop data...');
       const hashedPassword = bcrypt.hashSync('cheers123', 10);
       
       const resU1 = await dbRun(
@@ -164,5 +167,7 @@ export async function initDB() {
         [resS3.lastID, resU3.lastID, 4, 4, 4, 5, 3200, 'とにかくコスパが良い！飲み放題の種類が多くて若いメンバーの歓送迎会にぴったりでした。']
       );
     }
-  });
+  } catch (error) {
+    console.error('[DB] Initialization error:', error);
+  }
 }

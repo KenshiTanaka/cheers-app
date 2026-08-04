@@ -7,7 +7,7 @@ interface ShopCardProps {
   onClick: () => void;
 }
 
-export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
+export const ShopCard: React.FC<ShopCardProps> = React.memo(({ shop, onClick }) => {
   return (
     <div
       className="glass-panel animate-fade-in"
@@ -108,7 +108,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
           <span>{shop.address}</span>
         </div>
 
-        {/* 4つの評価パラメータ（アイコン付きグリッド） */}
+        {/* 4つの評価パラメータ */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
@@ -164,7 +164,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
           </div>
         )}
 
-        {/* 属性タグ (個室 / 日本人店員率 / 予算) */}
+        {/* 属性タグ */}
         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <span className="badge">
             <DoorClosed size={13} />
@@ -184,4 +184,4 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
       </div>
     </div>
   );
-};
+});

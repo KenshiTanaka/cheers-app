@@ -22,6 +22,12 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // 傾斜割り勘計算機ステート
+  const [calcTotal, setCalcTotal] = useState(45000);
+  const [calcExecCount, setCalcExecCount] = useState(1);
+  const [calcStaffCount, setCalcStaffCount] = useState(8);
+  const [calcExecWeight, setCalcExecWeight] = useState(1.8); // 役員は一般社員の1.8倍支払う
+
   useEffect(() => {
     if (shopId) {
       fetchShopDetail();
@@ -47,13 +53,21 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
     e.preventDefault();
     if (!shopId) return;
 
+    const token = localStorage.getItem('cheers_token');
+    if (!token) {
+      alert('レビュー投稿にはログインが必要です。');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch(`/api/shops/${shopId}/reviews`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          user_id: currentUser?.id || 1,
           taste_rating: taste,
           atmosphere_rating: atmosphere,
           drink_rating: drink,
@@ -67,6 +81,9 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
         setComment('');
         fetchShopDetail();
         onReviewAdded();
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'レビュー投稿に失敗しました。');
       }
     } catch (e) {
       console.error(e);
@@ -74,6 +91,27 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
       setSubmitting(false);
     }
   };
+
+  // 傾斜割り勘の計算ロジック
+  const calculateSplitBill = () => {
+    const totalPeoplePoints = (calcExecCount * calcExecWeight) + calcStaffCount;
+    if (totalPeoplePoints <= 0 || calcTotal <= 0) return { execPrice: 0, staffPrice: 0, remainder: 0 };
+
+    const basePrice = calcTotal / totalPeoplePoints;
+    // 端数は500円単位でまるめる
+    let staffPrice = Math.floor(basePrice / 500) * 500;
+    if (staffPrice <= 0) staffPrice = Math.floor(basePrice);
+
+    let execPrice = Math.ceil((basePrice * calcExecWeight) / 500) * 500;
+    if (execPrice <= 0) execPrice = Math.ceil(basePrice * calcExecWeight);
+
+    const totalCollected = (execPrice * calcExecCount) + (staffPrice * calcStaffCount);
+    const remainder = totalCollected - calcTotal;
+
+    return { execPrice, staffPrice, remainder };
+  };
+
+  const { execPrice, staffPrice, remainder } = calculateSplitBill();
 
   if (!shopId) return null;
 
@@ -196,7 +234,7 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
               </div>
             </div>
 
-            {/* 外部サービス連携（食べログ / Googleマップ / ホットペッパー） */}
+            {/* 外部サービス連携 */}
             <div style={{
               display: 'flex',
               gap: '10px',
@@ -283,23 +321,40 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
                 🧮 幹事必見！役員・上司の傾斜割り勘計算機を開く
               </summary>
               <div style={{ marginTop: '14px', fontSize: '0.85rem', color: '#cbd5e1' }}>
-                <p style={{ marginBottom: '10px', color: '#94a3b8' }}>役員や上司に多めに払ってもらう場合の1人当たり支払額を即座に計算します。</p>
+                <p style={{ marginBottom: '10px', color: '#94a3b8' }}>役員や上司に多めに払ってもらう場合の1人当たり支払額をリアルタイム計算します。</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '12px' }}>
                   <div>
                     <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>会計総額 (円)</label>
-                    <input id="totalAmount" type="number" defaultValue="45000" style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }} />
+                    <input
+                      type="number"
+                      value={calcTotal}
+                      onChange={(e) => setCalcTotal(Number(e.target.value))}
+                      style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }}
+                    />
                   </div>
                   <div>
                     <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>役員人数 (多め)</label>
-                    <input id="executiveCount" type="number" defaultValue="1" style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }} />
+                    <input
+                      type="number"
+                      min="0"
+                      value={calcExecCount}
+                      onChange={(e) => setCalcExecCount(Number(e.target.value))}
+                      style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }}
+                    />
                   </div>
                   <div>
                     <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>一般社員人数</label>
-                    <input id="staffCount" type="number" defaultValue="8" style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }} />
+                    <input
+                      type="number"
+                      min="1"
+                      value={calcStaffCount}
+                      onChange={(e) => setCalcStaffCount(Number(e.target.value))}
+                      style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }}
+                    />
                   </div>
                 </div>
-                <div style={{ padding: '10px', background: 'rgba(15, 23, 42, 0.8)', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                  💡 <strong>目安目安</strong>: 役員 <strong>¥8,000</strong> / 人, 一般社員 <strong>¥4,600</strong> / 人 (端数は幹事負担)
+                <div style={{ padding: '10px', background: 'rgba(15, 23, 42, 0.8)', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                  💡 <strong>支払計算結果</strong>: 役員 <strong>¥{execPrice.toLocaleString()}</strong> / 人, 一般社員 <strong>¥{staffPrice.toLocaleString()}</strong> / 人 {remainder >= 0 ? `(幹事の余剰・おつり: +¥${remainder.toLocaleString()})` : `(不足額: ¥${Math.abs(remainder).toLocaleString()})`}
                 </div>
               </div>
             </details>

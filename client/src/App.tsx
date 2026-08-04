@@ -25,13 +25,32 @@ export const App: React.FC = () => {
   const [showAuth, setShowAuth] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
-  // 初期化（ログインチェック＆店舗取得）
+  // 初期化（ログインチェック & トークン有効性検証）
   useEffect(() => {
-    const savedToken = localStorage.getItem('cheers_token');
-    const savedUser = localStorage.getItem('cheers_user');
-    if (savedToken && savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
+    const checkAuth = async () => {
+      const savedToken = localStorage.getItem('cheers_token');
+      const savedUser = localStorage.getItem('cheers_user');
+
+      if (savedToken) {
+        try {
+          const res = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${savedToken}` }
+          });
+          if (res.ok) {
+            const userData = await res.json();
+            setUser(userData);
+            localStorage.setItem('cheers_user', JSON.stringify(userData));
+          } else {
+            // トークン期限切れ
+            handleLogout();
+          }
+        } catch (e) {
+          if (savedUser) setUser(JSON.parse(savedUser));
+        }
+      }
+    };
+
+    checkAuth();
   }, []);
 
   useEffect(() => {

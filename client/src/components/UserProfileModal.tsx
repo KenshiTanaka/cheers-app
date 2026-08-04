@@ -24,11 +24,21 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
     setPasskeyMsg('');
     setPasskeyRegistering(true);
 
+    const token = localStorage.getItem('cheers_token');
+    if (!token) {
+      setPasskeyMsg('❌ パスキーの登録にはログインが必要です');
+      setPasskeyRegistering(false);
+      return;
+    }
+
     try {
       // 1. パスキー登録オプション・チャレンジ取得
       const res = await fetch('/api/auth/passkey/register-options', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ userId: currentUser.id }),
       });
       const optionsData = await res.json();
@@ -40,8 +50,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
       // 3. 署名検証とサーバDB保存
       const verifyRes = await fetch('/api/auth/passkey/register-verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, response: attResp }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ response: attResp }),
       });
       const verifyData = await verifyRes.json();
 
@@ -59,14 +72,23 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const token = localStorage.getItem('cheers_token');
+    if (!token) {
+      alert('プロフィールの更新にはログインが必要です。');
+      return;
+    }
+
     setSaving(true);
 
     try {
       const res = await fetch('/api/auth/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          id: currentUser.id,
           name,
           department,
           favorite_area: favoriteArea,
@@ -79,6 +101,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
         const updated = await res.json();
         onUpdate(updated);
         onClose();
+      } else {
+        const err = await res.json();
+        alert(err.error || '更新に失敗しました');
       }
     } catch (e) {
       console.error(e);

@@ -3,6 +3,7 @@ import { dbAll, dbGet, dbRun } from '../db';
 import { findNearestStation } from '../services/stationService';
 import { searchShopByName } from '../services/hotpepperService';
 import { rankShopsByVector } from '../services/vectorService';
+import { authMiddleware, AuthenticatedRequest } from './auth';
 
 export const shopsRouter = Router();
 
@@ -13,7 +14,6 @@ shopsRouter.get('/recommend', async (req, res) => {
 
     let targetText = (query as string) || '';
 
-    // ユーザーIDが渡された場合はユーザープロフィール情報も合成
     if (user_id) {
       const user = await dbGet('SELECT * FROM users WHERE id = ?', [user_id]);
       if (user) {
@@ -25,7 +25,6 @@ shopsRouter.get('/recommend', async (req, res) => {
       targetText = '個室 居酒屋 ビール 日本酒 焼酎 美味しい コスパ';
     }
 
-    // すべての店舗と全レビューコメントを取得
     const shops = await dbAll(`
       SELECT 
         s.*,
@@ -43,7 +42,6 @@ shopsRouter.get('/recommend', async (req, res) => {
       GROUP BY s.id
     `);
 
-    // レビュー一覧の取得
     const allReviews = await dbAll('SELECT shop_id, comment FROM reviews');
     const reviewsByShop = new Map<number, Array<{ comment: string }>>();
     for (const rev of allReviews) {
@@ -58,10 +56,8 @@ shopsRouter.get('/recommend', async (req, res) => {
       reviews: reviewsByShop.get(s.id) || []
     }));
 
-    // ベクトル類似度ランキング計算
     const rankMap = rankShopsByVector(targetText, shopsWithReviews);
 
-    // スコア順にソートしてレスポンス成形
     const rankedShops = shops.map(shop => {
       const vecResult = rankMap.get(shop.id) || {
         score: 50,
@@ -76,10 +72,10 @@ shopsRouter.get('/recommend', async (req, res) => {
       };
     }).sort((a, b) => b.vector_score - a.vector_score);
 
-    return res.json(rankedShops.slice(0, 30)); // 上位30件を返却
+    return res.json(rankedShops.slice(0, 30));
   } catch (error: any) {
     console.error('[recommend API error]:', error);
-    return res.status(500).json({ error: error.message || 'おすすめ店舗の算出に失敗しました。' });
+    return res.status(500).json({ error: 'おすすめ店舗の算出に失敗しました。' });
   }
 });
 
@@ -97,9 +93,7 @@ shopsRouter.get('/search-place', async (req, res) => {
       return res.status(404).json({ error: '該当する店舗が見つかりませんでした。' });
     }
 
-    // 候補リストを返す（フロントエンドで選択可能に）
     const results = shops.map(shop => {
-      // ホットペッパーが最寄り駅名を返す。なければ座標から算出
       let stationName = shop.station_name;
       let walkMinutes = 3;
 
@@ -126,7 +120,7 @@ shopsRouter.get('/search-place', async (req, res) => {
     return res.json({ results });
   } catch (error: any) {
     console.error('[search-place] Error:', error);
-    return res.status(500).json({ error: error.message || '店舗検索に失敗しました。' });
+    return res.status(500).json({ error: '店舗検索に失敗しました。' });
   }
 });
 
@@ -143,7 +137,7 @@ shopsRouter.get('/nearest-station', async (req, res) => {
     const result = findNearestStation(lat, lng);
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || '最寄り駅の算出に失敗しました。' });
+    return res.status(500).json({ error: '最寄り駅の算出に失敗しました。' });
   }
 });
 
@@ -206,7 +200,7 @@ shopsRouter.get('/', async (req, res) => {
     const shops = await dbAll(query, params);
     return res.json(shops);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || '店舗情報の取得中にエラーが発生しました。' });
+    return res.status(500).json({ error: '店舗情報の取得中にエラーが発生しました。' });
   }
 });
 
@@ -246,20 +240,20 @@ shopsRouter.get('/:id', async (req, res) => {
 
     return res.json({ ...shop, reviews });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || '店舗詳細の取得中にエラーが発生しました。' });
+    return res.status(500).json({ error: '店舗詳細の取得中にエラーが発生しました。' });
   }
 });
 
-// 新規店舗登録 API（フロントから座標・最寄り駅情報を受け取る）
-shopsRouter.post('/', async (req, res) => {
+// 新規店舗登録 API (認証保護)
+shopsRouter.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
-    const { name, category, address, station_name, walk_minutes, lat, lng, japanese_staff_ratio, private_room_type, image_url, user_id } = req.body;
+    const { name, category, address, station_name, walk_minutes, lat, lng, japanese_staff_ratio, private_room_type, image_url } = req.body;
+    const userId = req.user!.id;
 
     if (!name || !address) {
       return res.status(400).json({ error: '店舗名と住所は必須です。' });
     }
 
-    // フロントから座標が送られてきた場合はそこから最寄り駅を再計算、なければフロントの値をそのまま使用
     let finalStationName = station_name || '';
     let finalWalkMinutes = walk_minutes !== undefined ? Number(walk_minutes) : 3;
     let finalLat = lat || 0;
@@ -285,21 +279,22 @@ shopsRouter.post('/', async (req, res) => {
       japanese_staff_ratio !== undefined ? Number(japanese_staff_ratio) : 100,
       private_room_type || 'なし',
       image_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60',
-      user_id || 1
+      userId
     ]);
 
     const createdShop = await dbGet('SELECT * FROM shops WHERE id = ?', [result.lastID]);
     return res.json(createdShop);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || '店舗登録に失敗しました。' });
+    return res.status(500).json({ error: '店舗登録に失敗しました。' });
   }
 });
 
-// 評価レビュー投稿 API
-shopsRouter.post('/:id/reviews', async (req, res) => {
+// 評価レビュー投稿 API (認証保護)
+shopsRouter.post('/:id/reviews', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     const shopId = req.params.id;
-    const { user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment } = req.body;
+    const userId = req.user!.id;
+    const { taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment } = req.body;
 
     if (!taste_rating || !atmosphere_rating || !drink_rating || !price_rating) {
       return res.status(400).json({ error: 'すべての5段階評価項目を入力してください。' });
@@ -310,7 +305,7 @@ shopsRouter.post('/:id/reviews', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       shopId,
-      user_id || 1,
+      userId,
       Number(taste_rating),
       Number(atmosphere_rating),
       Number(drink_rating),
@@ -322,6 +317,6 @@ shopsRouter.post('/:id/reviews', async (req, res) => {
     const newReview = await dbGet('SELECT * FROM reviews WHERE id = ?', [result.lastID]);
     return res.json(newReview);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'レビュー投稿に失敗しました。' });
+    return res.status(500).json({ error: 'レビュー投稿に失敗しました。' });
   }
 });

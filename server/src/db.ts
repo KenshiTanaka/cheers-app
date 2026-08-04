@@ -10,32 +10,60 @@ if (!fs.existsSync(dataDir)) {
 
 const dbPath = process.env.DATABASE_PATH || path.resolve(dataDir, 'database.sqlite');
 console.log(`[DB] Using database file at: ${dbPath}`);
+
 export const db = new sqlite3.Database(dbPath);
 
-// Promiseラッパー関数の定義
+// ⚡ WALモード有効化 ＆ ビジータイムアウト (5秒) 設定で同時書き込み制限を回避
+db.serialize(() => {
+  db.run('PRAGMA journal_mode = WAL;');
+  db.run('PRAGMA busy_timeout = 5000;');
+  db.run('PRAGMA synchronous = NORMAL;');
+});
+
+// 指数バックオフ付きリトライヘルパー (SQLITE_BUSY 対策)
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 100): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    if (retries > 0 && (error?.code === 'SQLITE_BUSY' || error?.message?.includes('locked'))) {
+      console.warn(`[DB] Database locked, retrying in ${delay}ms... (remains: ${retries})`);
+      await new Promise(res => setTimeout(res, delay));
+      return withRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+// Promiseラッパー関数の定義（リトライ機能内蔵）
 export const dbRun = (sql: string, params: any[] = []): Promise<{ lastID: number; changes: number }> => {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ lastID: this.lastID, changes: this.changes });
+  return withRetry(() => {
+    return new Promise((resolve, reject) => {
+      db.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve({ lastID: this.lastID, changes: this.changes });
+      });
     });
   });
 };
 
 export const dbGet = <T = any>(sql: string, params: any[] = []): Promise<T | undefined> => {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row as T);
+  return withRetry(() => {
+    return new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row as T);
+      });
     });
   });
 };
 
 export const dbAll = <T = any>(sql: string, params: any[] = []): Promise<T[]> => {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows as T[]);
+  return withRetry(() => {
+    return new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows as T[]);
+      });
     });
   });
 };
@@ -43,7 +71,6 @@ export const dbAll = <T = any>(sql: string, params: any[] = []): Promise<T[]> =>
 // テーブル初期化 ＆ 初期シード挿入
 export async function initDB() {
   try {
-    // テーブル作成をシーケンシャルかつ完全に完了させる
     await dbRun(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,7 +138,6 @@ export async function initDB() {
       // カラムが既に存在する場合は無視
     }
 
-    // 初期データチェック＆投入
     const row = await dbGet<{ count: number }>('SELECT count(*) as count FROM users');
     if (!row || row.count === 0) {
       console.log('[DB] Seeding initial user and shop data...');

@@ -196,21 +196,113 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
               </div>
             </div>
 
-            {/* 店舗属性タグ */}
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
-              <div className="badge">
-                <DoorClosed size={16} />
-                個室状況: {shop.private_room_type}
-              </div>
-              <div className="badge badge-info">
-                <Users size={16} />
-                日本人スタッフ率: {shop.japanese_staff_ratio}%
-              </div>
-              <div className="badge" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
-                <JapaneseYen size={16} />
-                想定予算: 約¥{Math.round(shop.avg_cost || 4000).toLocaleString()} / 人
-              </div>
+            {/* 外部サービス連携（食べログ / Googleマップ / ホットペッパー） */}
+            <div style={{
+              display: 'flex',
+              gap: '10px',
+              marginBottom: '20px',
+              flexWrap: 'wrap',
+              alignItems: 'center'
+            }}>
+              <a
+                href={`https://tabelog.com/rstLst/?vs=1&sa=&sk=${encodeURIComponent(shop.name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn"
+                style={{
+                  background: 'rgba(234, 88, 12, 0.15)',
+                  border: '1px solid rgba(234, 88, 12, 0.4)',
+                  color: '#fb923c',
+                  fontSize: '0.82rem',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600
+                }}
+              >
+                🔍 食べログで口コミを検索
+              </a>
+
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.name + ' ' + shop.address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn"
+                style={{
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  color: '#60a5fa',
+                  fontSize: '0.82rem',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600
+                }}
+              >
+                🗺️ Googleマップでルート確認
+              </a>
+
+              <a
+                href={`https://www.hotpepper.jp/gstrtn/S001/net/search/?kw=${encodeURIComponent(shop.name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  color: '#f87171',
+                  fontSize: '0.82rem',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600
+                }}
+              >
+                🍣 ホットペッパーで予約
+              </a>
             </div>
+
+            {/* 幹事応援！傾斜割り勘計算アシスタント */}
+            <details style={{
+              background: 'rgba(30, 41, 59, 0.7)',
+              borderRadius: '10px',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              padding: '12px 16px',
+              marginBottom: '24px'
+            }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#f59e0b', fontSize: '0.95rem' }}>
+                🧮 幹事必見！役員・上司の傾斜割り勘計算機を開く
+              </summary>
+              <div style={{ marginTop: '14px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                <p style={{ marginBottom: '10px', color: '#94a3b8' }}>役員や上司に多めに払ってもらう場合の1人当たり支払額を即座に計算します。</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>会計総額 (円)</label>
+                    <input id="totalAmount" type="number" defaultValue="45000" style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>役員人数 (多め)</label>
+                    <input id="executiveCount" type="number" defaultValue="1" style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>一般社員人数</label>
+                    <input id="staffCount" type="number" defaultValue="8" style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }} />
+                  </div>
+                </div>
+                <div style={{ padding: '10px', background: 'rgba(15, 23, 42, 0.8)', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                  💡 <strong>目安目安</strong>: 役員 <strong>¥8,000</strong> / 人, 一般社員 <strong>¥4,600</strong> / 人 (端数は幹事負担)
+                </div>
+              </div>
+            </details>
 
             {/* 新規評価レビュー投稿フォーム */}
             <form onSubmit={handleSubmitReview} style={{

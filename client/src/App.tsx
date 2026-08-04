@@ -4,8 +4,9 @@ import { ShopCard } from './components/ShopCard';
 import { ShopDetailModal } from './components/ShopDetailModal';
 import { AddShopModal } from './components/AddShopModal';
 import { AuthModal } from './components/AuthModal';
+import { UserProfileModal } from './components/UserProfileModal';
 import { Shop, User } from './types';
-import { Search, Filter, Sparkles, Award, MapPin, Beer } from 'lucide-react';
+import { Search, Filter, Sparkles, Award, MapPin, Beer, Trophy } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -22,6 +23,7 @@ export const App: React.FC = () => {
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const [showAddShop, setShowAddShop] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   // 初期化（ログインチェック＆店舗取得）
   useEffect(() => {
@@ -139,17 +141,33 @@ export const App: React.FC = () => {
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '10px',
+              gap: '12px',
               padding: '8px 14px',
               background: 'rgba(245, 158, 11, 0.12)',
               borderRadius: '8px',
               border: '1px solid rgba(245, 158, 11, 0.3)',
-              fontSize: '0.85rem'
+              fontSize: '0.85rem',
+              flexWrap: 'wrap'
             }}>
               <Beer size={16} color="#f59e0b" />
               <span>
-                ようこそ <strong>{user.name}</strong> さん！ (現場: <strong>{user.department || '大手町現場'}</strong>) - よく使用する駅: <strong>{user.favorite_area || '大手町駅, 東京駅, 新宿駅'}</strong>
+                ようこそ <strong>{user.name}</strong> さん！ (現場: <strong>{user.department || '未設定'}</strong>) - よく使う駅: <strong>{user.favorite_area || '神田, 大手町, 有楽町'}</strong>
               </span>
+              <button
+                onClick={() => setShowProfile(true)}
+                style={{
+                  background: 'rgba(245, 158, 11, 0.2)',
+                  border: '1px solid #f59e0b',
+                  color: '#fbbf24',
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                ✏️ 好みを編集
+              </button>
             </div>
           )}
         </div>
@@ -377,6 +395,17 @@ export const App: React.FC = () => {
         <AuthModal
           onClose={() => setShowAuth(false)}
           onAuthSuccess={handleAuthSuccess}
+        />
+      )}
+
+      {showProfile && user && (
+        <UserProfileModal
+          currentUser={user}
+          onClose={() => setShowProfile(false)}
+          onUpdate={(updatedUser) => {
+            setUser(updatedUser);
+            localStorage.setItem('cheers_user', JSON.stringify(updatedUser));
+          }}
         />
       )}
     </div>

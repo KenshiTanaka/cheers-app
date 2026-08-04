@@ -80,3 +80,25 @@ authRouter.get('/me', async (req, res) => {
     return res.status(401).json({ error: '無効なトークンです。' });
   }
 });
+
+// プロフィール情報更新 API
+authRouter.put('/profile', async (req, res) => {
+  try {
+    const { id, name, department, favorite_area, alcohol_preference, favorite_food } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: 'ユーザーIDが指定されていません。' });
+    }
+
+    await dbRun(`
+      UPDATE users 
+      SET name = ?, department = ?, favorite_area = ?, alcohol_preference = ?, favorite_food = ?
+      WHERE id = ?
+    `, [name || '', department || '', favorite_area || '', alcohol_preference || '', favorite_food || '', id]);
+
+    const updatedUser = await dbGet('SELECT id, email, name, department, favorite_area, alcohol_preference, favorite_food FROM users WHERE id = ?', [id]);
+    return res.json(updatedUser);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'プロフィールの更新に失敗しました。' });
+  }
+});

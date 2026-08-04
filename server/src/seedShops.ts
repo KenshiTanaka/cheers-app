@@ -1,10 +1,7 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 
-// DBパス (Docker環境 / ローカル環境両対応)
-const dbPath = process.env.NODE_ENV === 'production' && process.env.DATABASE_PATH
-  ? process.env.DATABASE_PATH
-  : path.resolve(__dirname, '../database.sqlite');
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../data/database.sqlite');
 
 console.log(`[Seed] Connecting to database at: ${dbPath}`);
 const db = new sqlite3.Database(dbPath);

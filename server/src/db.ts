@@ -2,7 +2,15 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 
-const dbPath = path.resolve(__dirname, '../database.sqlite');
+import fs from 'fs';
+
+const dataDir = process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.resolve(__dirname, '../data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = process.env.DATABASE_PATH || path.resolve(dataDir, 'database.sqlite');
+console.log(`[DB] Using database file at: ${dbPath}`);
 export const db = new sqlite3.Database(dbPath);
 
 // Promiseラッパー関数の定義

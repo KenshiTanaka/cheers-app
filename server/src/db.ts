@@ -89,7 +89,25 @@ export async function initDB() {
         comment TEXT DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS authenticators (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        public_key TEXT NOT NULL,
+        counter INTEGER NOT NULL DEFAULT 0,
+        device_type TEXT,
+        backed_up INTEGER DEFAULT 0,
+        transports TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
     `);
+
+    try {
+      await dbRun('ALTER TABLE users ADD COLUMN current_challenge TEXT');
+    } catch (e) {
+      // カラムが既に存在する場合は無視
+    }
 
     // シードデータ挿入
     const row = await dbGet<{ count: number }>('SELECT count(*) as count FROM users');

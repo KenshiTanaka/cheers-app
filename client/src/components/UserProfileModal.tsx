@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { X, User as UserIcon, Building, MapPin, Beer, Utensils, Save } from 'lucide-react';
+import { X, User as UserIcon, Building, MapPin, Beer, Utensils, Save, Fingerprint } from 'lucide-react';
+import { startRegistration } from '@simplewebauthn/browser';
 import { User } from '../types';
 
 interface UserProfileModalProps {
@@ -15,6 +16,46 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
   const [alcoholPreference, setAlcoholPreference] = useState(currentUser.alcohol_preference || '');
   const [favoriteFood, setFavoriteFood] = useState(currentUser.favorite_food || '');
   const [saving, setSaving] = useState(false);
+  const [passkeyRegistering, setPasskeyRegistering] = useState(false);
+  const [passkeyMsg, setPasskeyMsg] = useState('');
+
+  // 🔑 パスキー (Face ID / 指紋認証) 端末登録処理
+  const handleRegisterPasskey = async () => {
+    setPasskeyMsg('');
+    setPasskeyRegistering(true);
+
+    try {
+      // 1. パスキー登録オプション・チャレンジ取得
+      const res = await fetch('/api/auth/passkey/register-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id }),
+      });
+      const optionsData = await res.json();
+      if (!res.ok) throw new Error(optionsData.error || '登録初期化に失敗しました');
+
+      // 2. ブラウザ生体認証ダイアログ（Face ID / Touch ID / Windows Hello）起動
+      const attResp = await startRegistration({ optionsJSON: optionsData });
+
+      // 3. 署名検証とサーバDB保存
+      const verifyRes = await fetch('/api/auth/passkey/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, response: attResp }),
+      });
+      const verifyData = await verifyRes.json();
+
+      if (!verifyRes.ok) throw new Error(verifyData.error || 'パスキー検証に失敗しました');
+
+      setPasskeyMsg('✅ この端末の生体認証（パスキー）が正常に登録されました！次回からワンタップでログインできます。');
+    } catch (err: any) {
+      if (err.name !== 'NotAllowedError') {
+        setPasskeyMsg(`❌ エラー: ${err.message || 'パスキー登録に失敗しました'}`);
+      }
+    } finally {
+      setPasskeyRegistering(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,6 +200,47 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
             <span>{saving ? '保存中...' : 'プロフィールを更新する'}</span>
           </button>
         </form>
+
+        {/* 🔑 生体認証（パスキー）追加登録エリア */}
+        <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+          <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Fingerprint size={18} color="#f59e0b" />
+            生体認証（パスキー）ログインの設定
+          </h4>
+          <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '12px' }}>
+            お使いのスマホの Face ID / 指紋認証 や PCの Touch ID / Windows Hello を登録すると、次回からパスワード入力なしで一発ログインできます。
+          </p>
+
+          <button
+            type="button"
+            onClick={handleRegisterPasskey}
+            disabled={passkeyRegistering}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              background: 'rgba(245, 158, 11, 0.15)',
+              border: '1px solid #f59e0b',
+              color: '#fbbf24',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+          >
+            <Fingerprint size={18} />
+            <span>{passkeyRegistering ? '生体認証を起動中...' : '🔑 この端末の生体認証（パスキー）を登録する'}</span>
+          </button>
+
+          {passkeyMsg && (
+            <div style={{ marginTop: '10px', fontSize: '0.8rem', color: passkeyMsg.startsWith('✅') ? '#34d399' : '#fca5a5', padding: '8px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.6)' }}>
+              {passkeyMsg}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

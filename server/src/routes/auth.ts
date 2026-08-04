@@ -13,12 +13,22 @@ export const authRouter = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'cheers_secret_key_2026';
 const RP_NAME = 'Cheers App';
 
-// 拡張 Request インターフェース
+// ログイン時の短期チャレンジ保持用メモリマップ (TTL: 5分)
+const activeLoginChallenges = new Map<string, { challenge: string; expiresAt: number }>();
+
+function cleanExpiredChallenges() {
+  const now = Date.now();
+  for (const [key, val] of activeLoginChallenges.entries()) {
+    if (val.expiresAt < now) {
+      activeLoginChallenges.delete(key);
+    }
+  }
+}
+
 export interface AuthenticatedRequest extends Request {
   user?: { id: number; email: string };
 }
 
-// 認証ミドルウェア
 export const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -98,7 +108,7 @@ authRouter.post('/login', async (req, res) => {
   }
 });
 
-// プロフィール情報取得 (保護対象)
+// プロフィール情報取得
 authRouter.get('/me', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     const user = await dbGet('SELECT id, email, name, department, favorite_area, alcohol_preference, favorite_food FROM users WHERE id = ?', [req.user!.id]);
@@ -109,7 +119,7 @@ authRouter.get('/me', authMiddleware, async (req: AuthenticatedRequest, res) => 
   }
 });
 
-// プロフィール情報更新 API (保護対象)
+// プロフィール情報更新 API
 authRouter.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     const { name, department, favorite_area, alcohol_preference, favorite_food } = req.body;
@@ -129,7 +139,7 @@ authRouter.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res
 });
 
 // -------------------------------------------------------------
-// パスキー (Passkey / WebAuthn) 登録オプション生成 (保護対象)
+// パスキー (Passkey / WebAuthn) 登録オプション生成
 // -------------------------------------------------------------
 authRouter.post('/passkey/register-options', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
@@ -167,7 +177,7 @@ authRouter.post('/passkey/register-options', authMiddleware, async (req: Authent
 });
 
 // -------------------------------------------------------------
-// パスキー (Passkey / WebAuthn) 登録検証 & 保存 (保護対象)
+// パスキー (Passkey / WebAuthn) 登録検証 & 保存
 // -------------------------------------------------------------
 authRouter.post('/passkey/register-verify', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
@@ -198,7 +208,6 @@ authRouter.post('/passkey/register-verify', authMiddleware, async (req: Authenti
 
     if (verified && registrationInfo) {
       const { credentialID, credentialPublicKey, counter, credentialDeviceType, credentialBackedUp } = registrationInfo;
-
       const pubKeyBase64 = Buffer.from(credentialPublicKey).toString('base64');
 
       await dbRun(`
@@ -230,6 +239,7 @@ authRouter.post('/passkey/register-verify', authMiddleware, async (req: Authenti
 // -------------------------------------------------------------
 authRouter.post('/passkey/login-options', async (req, res) => {
   try {
+    cleanExpiredChallenges();
     const { email } = req.body;
     let allowCredentials: any[] = [];
     let userId: number | null = null;
@@ -253,9 +263,14 @@ authRouter.post('/passkey/login-options', async (req, res) => {
       userVerification: 'preferred',
     });
 
+    // ユーザー指定ありの場合は DB に保持、Discoverable Credential 用にメモリマップにも保存
     if (userId) {
       await dbRun('UPDATE users SET current_challenge = ? WHERE id = ?', [options.challenge, userId]);
     }
+    activeLoginChallenges.set(options.challenge, {
+      challenge: options.challenge,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    });
 
     return res.json({ options, challenge: options.challenge });
   } catch (error: any) {
@@ -269,7 +284,7 @@ authRouter.post('/passkey/login-options', async (req, res) => {
 // -------------------------------------------------------------
 authRouter.post('/passkey/login-verify', async (req, res) => {
   try {
-    const { response } = req.body;
+    const { response, challenge } = req.body;
     if (!response || !response.id) return res.status(400).json({ error: '無効な認証データです。' });
 
     const passkey = await dbGet('SELECT * FROM authenticators WHERE id = ?', [response.id]);
@@ -278,9 +293,15 @@ authRouter.post('/passkey/login-verify', async (req, res) => {
     const user = await dbGet('SELECT * FROM users WHERE id = ?', [passkey.user_id]);
     if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません。' });
 
-    // 認証チャレンジはDB内の値のみを使用し、クライアントが改ざんしたチャレンジを拒否
-    const expectedChallenge = user.current_challenge;
-    if (!expectedChallenge) return res.status(400).json({ error: '認証チャレンジが見つからないか無効です。再度ログインをお試しください。' });
+    // DB の current_challenge または アクティブな発行済みチャレンジから検証対象のチャレンジを復元
+    let expectedChallenge = user.current_challenge;
+    if (!expectedChallenge && challenge && activeLoginChallenges.has(challenge)) {
+      expectedChallenge = activeLoginChallenges.get(challenge)!.challenge;
+    }
+
+    if (!expectedChallenge) {
+      return res.status(400).json({ error: '認証チャレンジが見つからないか有効期限が切れています。再度お試しください。' });
+    }
 
     const rpID = getRpId(req);
     const expectedOrigin = [
@@ -307,6 +328,7 @@ authRouter.post('/passkey/login-verify', async (req, res) => {
     const { verified, authenticationInfo } = verification;
 
     if (verified && authenticationInfo) {
+      if (challenge) activeLoginChallenges.delete(challenge);
       await dbRun('UPDATE authenticators SET counter = ? WHERE id = ?', [authenticationInfo.newCounter, passkey.id]);
       await dbRun('UPDATE users SET current_challenge = NULL WHERE id = ?', [user.id]);
 

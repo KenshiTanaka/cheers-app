@@ -49,7 +49,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
       if (!optsRes.ok) throw new Error(optsData.error || 'パスキー初期化に失敗しました');
 
       // 2. ブラウザ生体認証ダイアログ（Face ID / Touch ID / Windows Hello）を起動
-      const asseResp = await startAuthentication({ optionsJSON: optsData.options });
+      const asseResp = await startAuthentication(optsData.options);
 
       // 3. 署名検証＆ログイン完了
       const verifyRes = await fetch('/api/auth/passkey/login-verify', {

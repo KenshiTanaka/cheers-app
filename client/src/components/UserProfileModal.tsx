@@ -100,7 +100,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
 
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-              <Building size={14} color="#f59e0b" inline /> 所属部署 / 現場名
+              <Building size={14} color="#f59e0b" /> 所属部署 / 現場名
             </label>
             <input
               type="text"
@@ -113,7 +113,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
 
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-              <MapPin size={14} color="#f59e0b" inline /> よく使う駅（カンマ区切りで3つまで）
+              <MapPin size={14} color="#f59e0b" /> よく使う駅（カンマ区切りで3つまで）
             </label>
             <input
               type="text"
@@ -126,7 +126,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
 
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-              <Beer size={14} color="#f59e0b" inline /> お酒の好み
+              <Beer size={14} color="#f59e0b" /> お酒の好み
             </label>
             <select
               value={alcoholPreference}
@@ -143,7 +143,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
 
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-              <Utensils size={14} color="#f59e0b" inline /> 好きな料理ジャンル
+              <Utensils size={14} color="#f59e0b" /> 好きな料理ジャンル
             </label>
             <input
               type="text"

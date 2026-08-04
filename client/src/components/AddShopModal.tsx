@@ -160,11 +160,22 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
         })
       });
 
+      const data = await res.json();
+
+      if (res.status === 409) {
+        // 重複店舗が検出された場合、既存店舗のページを開く
+        if (data.existingShopId) {
+          onShopAdded(data.existingShopId);
+          onClose();
+        } else {
+          setError(data.error || 'この店舗は既に登録されています。');
+        }
+        return;
+      }
+
       if (res.ok) {
-        const createdShop = await res.json();
-        
         try {
-          await fetch(`/api/shops/${createdShop.id}/reviews`, {
+          await fetch(`/api/shops/${data.id}/reviews`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -183,10 +194,9 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
           console.error('Review submit error:', err);
         }
 
-        onShopAdded(createdShop.id);
+        onShopAdded(data.id);
         onClose();
       } else {
-        const data = await res.json();
         setError(data.error || '登録に失敗しました。');
       }
     } catch (e: any) {

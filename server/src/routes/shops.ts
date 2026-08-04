@@ -244,7 +244,7 @@ shopsRouter.get('/:id', async (req, res) => {
   }
 });
 
-// 新規店舗登録 API (認証保護)
+// 新規店舗登録 API (認証保護 & 重複防止チェック付き)
 shopsRouter.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     const { name, category, address, station_name, walk_minutes, lat, lng, japanese_staff_ratio, private_room_type, image_url } = req.body;
@@ -252,6 +252,15 @@ shopsRouter.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => 
 
     if (!name || !address) {
       return res.status(400).json({ error: '店舗名と住所は必須です。' });
+    }
+
+    // 🔍 既存の同名店舗または同一住所の店舗がないかチェック
+    const existingShop = await dbGet<any>('SELECT id, name, address FROM shops WHERE name = ? OR address = ?', [name.trim(), address.trim()]);
+    if (existingShop) {
+      return res.status(409).json({
+        error: `店舗「${existingShop.name}」は既に登録されています。既存の店舗ページからレビューを追加してください。`,
+        existingShopId: existingShop.id
+      });
     }
 
     let finalStationName = station_name || '';
@@ -269,9 +278,9 @@ shopsRouter.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => 
       INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      name,
+      name.trim(),
       category || '大衆酒場',
-      address,
+      address.trim(),
       finalLat,
       finalLng,
       finalStationName,

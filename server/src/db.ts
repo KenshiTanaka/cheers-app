@@ -114,6 +114,7 @@ export async function initDB() {
         price_rating INTEGER CHECK(price_rating BETWEEN 1 AND 5),
         cost_per_person INTEGER DEFAULT 4000,
         comment TEXT DEFAULT '',
+        is_anonymous INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -134,6 +135,12 @@ export async function initDB() {
 
     try {
       await dbRun('ALTER TABLE users ADD COLUMN current_challenge TEXT');
+    } catch (e) {
+      // カラムが既に存在する場合は無視
+    }
+
+    try {
+      await dbRun('ALTER TABLE reviews ADD COLUMN is_anonymous INTEGER DEFAULT 0');
     } catch (e) {
       // カラムが既に存在する場合は無視
     }

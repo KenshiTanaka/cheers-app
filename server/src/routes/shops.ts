@@ -231,7 +231,10 @@ shopsRouter.get('/:id', async (req, res) => {
     }
 
     const reviews = await dbAll(`
-      SELECT r.*, COALESCE(u.name, '社内メンバー') as reviewer_name, u.department as reviewer_department, u.alcohol_preference as reviewer_alcohol
+      SELECT r.*, 
+             CASE WHEN r.is_anonymous = 1 THEN '匿名さん' ELSE COALESCE(u.name, '社内メンバー') END as reviewer_name, 
+             CASE WHEN r.is_anonymous = 1 THEN '' ELSE u.department END as reviewer_department, 
+             CASE WHEN r.is_anonymous = 1 THEN '' ELSE u.alcohol_preference END as reviewer_alcohol
       FROM reviews r
       LEFT JOIN users u ON r.user_id = u.id
       WHERE r.shop_id = ?
@@ -303,15 +306,15 @@ shopsRouter.post('/:id/reviews', authMiddleware, async (req: AuthenticatedReques
   try {
     const shopId = req.params.id;
     const userId = req.user!.id;
-    const { taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment } = req.body;
+    const { taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment, is_anonymous } = req.body;
 
     if (!taste_rating || !atmosphere_rating || !drink_rating || !price_rating) {
       return res.status(400).json({ error: 'すべての5段階評価項目を入力してください。' });
     }
 
     const result = await dbRun(`
-      INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment, is_anonymous)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       shopId,
       userId,
@@ -320,7 +323,8 @@ shopsRouter.post('/:id/reviews', authMiddleware, async (req: AuthenticatedReques
       Number(drink_rating),
       Number(price_rating),
       cost_per_person ? Number(cost_per_person) : 4000,
-      comment || ''
+      comment || '',
+      is_anonymous ? 1 : 0
     ]);
 
     const newReview = await dbGet('SELECT * FROM reviews WHERE id = ?', [result.lastID]);

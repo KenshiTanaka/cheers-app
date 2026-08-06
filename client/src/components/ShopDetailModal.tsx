@@ -20,13 +20,8 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
   const [price, setPrice] = useState(4);
   const [cost, setCost] = useState(4500);
   const [comment, setComment] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // 傾斜割り勘計算機ステート
-  const [calcTotal, setCalcTotal] = useState(45000);
-  const [calcExecCount, setCalcExecCount] = useState(1);
-  const [calcStaffCount, setCalcStaffCount] = useState(8);
-  const [calcExecWeight, setCalcExecWeight] = useState(1.8); // 役員は一般社員の1.8倍支払う
 
   useEffect(() => {
     if (shopId) {
@@ -73,7 +68,8 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
           drink_rating: drink,
           price_rating: price,
           cost_per_person: cost,
-          comment
+          comment,
+          is_anonymous: isAnonymous
         })
       });
 
@@ -92,27 +88,6 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
     }
   };
 
-  // 傾斜割り勘の計算ロジック
-  const calculateSplitBill = () => {
-    const totalPeoplePoints = (calcExecCount * calcExecWeight) + calcStaffCount;
-    if (totalPeoplePoints <= 0 || calcTotal <= 0) return { execPrice: 0, staffPrice: 0, remainder: 0 };
-
-    const basePrice = calcTotal / totalPeoplePoints;
-    // 端数は500円単位でまるめる
-    let staffPrice = Math.floor(basePrice / 500) * 500;
-    if (staffPrice <= 0) staffPrice = Math.floor(basePrice);
-
-    let execPrice = Math.ceil((basePrice * calcExecWeight) / 500) * 500;
-    if (execPrice <= 0) execPrice = Math.ceil(basePrice * calcExecWeight);
-
-    const totalCollected = (execPrice * calcExecCount) + (staffPrice * calcStaffCount);
-    const remainder = totalCollected - calcTotal;
-
-    return { execPrice, staffPrice, remainder };
-  };
-
-  const { execPrice, staffPrice, remainder } = calculateSplitBill();
-
   if (!shopId) return null;
 
   return (
@@ -127,14 +102,7 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
       justifyContent: 'center',
       padding: '16px'
     }}>
-      <div className="glass-panel animate-fade-in" style={{
-        width: '100%',
-        maxWidth: '850px',
-        maxHeight: '90vh',
-        overflowY: 'auto',
-        position: 'relative',
-        padding: '24px'
-      }}>
+      <div className="glass-panel modal-content animate-fade-in">
         {/* 閉じるボタン */}
         <button
           onClick={onClose}
@@ -191,12 +159,7 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
             </div>
 
             {/* 属性・平均評価サマリー */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: '12px',
-              marginBottom: '24px'
-            }}>
+            <div className="summary-grid">
               <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
                 <div style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Utensils size={14} color="#f59e0b" /> おいしさ平均
@@ -309,56 +272,6 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
               </a>
             </div>
 
-            {/* 幹事応援！傾斜割り勘計算アシスタント */}
-            <details style={{
-              background: 'rgba(30, 41, 59, 0.7)',
-              borderRadius: '10px',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              padding: '12px 16px',
-              marginBottom: '24px'
-            }}>
-              <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#f59e0b', fontSize: '0.95rem' }}>
-                🧮 幹事必見！役員・上司の傾斜割り勘計算機を開く
-              </summary>
-              <div style={{ marginTop: '14px', fontSize: '0.85rem', color: '#cbd5e1' }}>
-                <p style={{ marginBottom: '10px', color: '#94a3b8' }}>役員や上司に多めに払ってもらう場合の1人当たり支払額をリアルタイム計算します。</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '12px' }}>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>会計総額 (円)</label>
-                    <input
-                      type="number"
-                      value={calcTotal}
-                      onChange={(e) => setCalcTotal(Number(e.target.value))}
-                      style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>役員人数 (多め)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={calcExecCount}
-                      onChange={(e) => setCalcExecCount(Number(e.target.value))}
-                      style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>一般社員人数</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={calcStaffCount}
-                      onChange={(e) => setCalcStaffCount(Number(e.target.value))}
-                      style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#0f172a', border: '1px solid #475569', color: '#fff' }}
-                    />
-                  </div>
-                </div>
-                <div style={{ padding: '10px', background: 'rgba(15, 23, 42, 0.8)', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                  💡 <strong>支払計算結果</strong>: 役員 <strong>¥{execPrice.toLocaleString()}</strong> / 人, 一般社員 <strong>¥{staffPrice.toLocaleString()}</strong> / 人 {remainder >= 0 ? `(幹事の余剰・おつり: +¥${remainder.toLocaleString()})` : `(不足額: ¥${Math.abs(remainder).toLocaleString()})`}
-                </div>
-              </div>
-            </details>
-
             {/* 新規評価レビュー投稿フォーム */}
             <form onSubmit={handleSubmitReview} style={{
               background: 'rgba(15, 23, 42, 0.8)',
@@ -372,7 +285,7 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
                 このお店を5段階で評価・投稿する
               </h4>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+              <div className="rating-grid">
                 <div>
                   <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>おいしさ (1~5)</label>
                   <select value={taste} onChange={(e) => setTaste(Number(e.target.value))} style={{ width: '100%', padding: '8px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569' }}>
@@ -422,6 +335,19 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
                   placeholder="個室の雰囲気、おすすめのメニュー、二次会に向いているかなど..."
                   style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', resize: 'vertical' }}
                 />
+              </div>
+
+              <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  id="anonymous-checkbox"
+                  checked={isAnonymous}
+                  onChange={(e) => setIsAnonymous(e.target.checked)}
+                  style={{ width: '16px', height: '16px', accentColor: '#f59e0b' }}
+                />
+                <label htmlFor="anonymous-checkbox" style={{ fontSize: '0.9rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                  匿名で投稿する（名前や部署を伏せる）
+                </label>
               </div>
 
               <button type="submit" disabled={submitting} className="btn btn-primary" style={{ width: '100%' }}>

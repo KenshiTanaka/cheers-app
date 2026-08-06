@@ -136,18 +136,12 @@ export const App: React.FC = () => {
       />
 
       {/* ヒーローセクション (ビールテーマ & ナレッジインフォ) */}
-      <div className="glass-panel" style={{
-        padding: '36px 28px',
-        marginBottom: '28px',
-        background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
+      <div className="glass-panel hero-section">
         <div style={{ position: 'relative', zIndex: 2, maxWidth: '680px' }}>
           <div className="badge" style={{ marginBottom: '12px' }}>
             <Sparkles size={14} /> 社内飲み会・懇親会特化型評価プラットフォーム
           </div>
-          <h2 style={{ fontSize: '2.1rem', fontWeight: 800, lineHeight: 1.25, marginBottom: '12px' }}>
+          <h2 className="hero-title">
             今夜の飲み会を、<br />
             <span style={{ color: '#f59e0b', textShadow: '0 0 20px rgba(245, 158, 11, 0.3)' }}>最高の体験にする店舗ナレッジ。</span>
           </h2>
@@ -232,7 +226,7 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        <form onSubmit={(e) => { e.preventDefault(); fetchRecommendShops(); }} style={{ display: 'flex', gap: '8px' }}>
+        <form onSubmit={(e) => { e.preventDefault(); fetchRecommendShops(); }} className="ai-search-form">
           <input
             type="text"
             value={aiQuery}
@@ -291,7 +285,7 @@ export const App: React.FC = () => {
 
       {/* 検索・フィルター コントロール */}
       <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px' }}>
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+        <form onSubmit={handleSearchSubmit} className="search-form-grid">
           
           {/* 検索入力 */}
           <div style={{ flex: '1 1 240px', position: 'relative' }}>
@@ -368,11 +362,7 @@ export const App: React.FC = () => {
           店舗データを読み込み中...
         </div>
       ) : shops.length > 0 ? (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-          gap: '20px'
-        }}>
+        <div className="shop-grid">
           {shops.map((shop) => (
             <ShopCard
               key={shop.id}

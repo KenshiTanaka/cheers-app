@@ -11,8 +11,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onOpenAddShop, onLogout }) => {
   return (
-    <header className="glass-panel" style={{ margin: '16px auto 24px auto', borderRadius: '16px', padding: '14px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+    <header className="glass-panel header-panel" style={{ margin: '16px auto 24px auto', borderRadius: '16px', padding: '14px 24px' }}>
+      <div className="header-container">
         
         {/* ロゴ */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -32,7 +32,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onOpenAddShop,
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.5px', color: '#f8fafc' }}>
               Cheers <span style={{ color: '#f59e0b', fontSize: '0.9rem', fontWeight: 600 }}>チアーズ</span>
             </h1>
-            <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>社内飲み会・店舗評価ナレッジ共有</p>
+            <p className="hide-on-mobile" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>社内飲み会・店舗評価ナレッジ共有</p>
           </div>
         </div>
 
@@ -42,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onOpenAddShop,
             <>
               <button className="btn btn-primary" onClick={onOpenAddShop}>
                 <PlusCircle size={18} />
-                <span>店舗を追加する</span>
+                <span className="hide-on-mobile">店舗を追加する</span>
               </button>
 
               <div style={{
@@ -50,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onOpenAddShop,
                 alignItems: 'center',
                 gap: '8px',
                 padding: '6px 12px',
-                background: 'rgba(51, 65, 85, 0.5)',
+                background: 'rgba(120, 53, 15, 0.5)',
                 borderRadius: '8px',
                 border: '1px solid rgba(255, 255, 255, 0.1)'
               }}>
@@ -71,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onOpenAddShop,
           ) : (
             <button className="btn btn-primary" onClick={onOpenAuth}>
               <UserIcon size={18} />
-              <span>ログイン / 新規登録</span>
+              <span className="hide-on-mobile">ログイン / 新規登録</span>
             </button>
           )}
         </div>

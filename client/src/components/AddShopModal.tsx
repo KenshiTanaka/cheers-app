@@ -5,7 +5,7 @@ import { User } from '../types';
 interface AddShopModalProps {
   currentUser: User | null;
   onClose: () => void;
-  onShopAdded: () => void;
+  onShopAdded: (newShopId?: number) => void;
 }
 
 interface ShopCandidate {
@@ -37,14 +37,12 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
   const [shopLat, setShopLat] = useState<number>(0);
   const [shopLng, setShopLng] = useState<number>(0);
 
-  // 検索候補リスト
   const [candidates, setCandidates] = useState<ShopCandidate[]>([]);
   const [showCandidates, setShowCandidates] = useState(false);
 
-  // ホットペッパーAPIで店舗を検索
   const handleAutoSearchAddress = async () => {
     if (!name.trim()) {
-      setError('店舗名を入力してから「住所を自動取得」を押してください。');
+      setError('店舗名を入力してから「検索」を押してください。');
       return;
     }
 
@@ -58,7 +56,7 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
       const res = await fetch(`/api/shops/search-place?name=${encodeURIComponent(name.trim())}`);
 
       if (res.status === 404) {
-        setError(`「${name}」に該当する店舗がホットペッパーに見つかりませんでした。\n住所を手動で入力してください。`);
+        setError(`「${name}」に該当する店舗が見つかりませんでした。\n住所を手動で入力してください。`);
         return;
       }
 
@@ -77,10 +75,8 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
       }
 
       if (results.length === 1) {
-        // 1件のみの場合は自動セット
         selectCandidate(results[0]);
       } else {
-        // 複数候補がある場合は選択UIを表示
         setCandidates(results);
         setShowCandidates(true);
       }
@@ -92,7 +88,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
     }
   };
 
-  // 候補を選択して各フィールドに自動セット
   const selectCandidate = (shop: ShopCandidate) => {
     setName(shop.name);
     setAddress(shop.address);
@@ -102,7 +97,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
     setWalkMinutes(shop.walk_minutes || 3);
     if (shop.photo_url) setImageUrl(shop.photo_url);
     if (shop.genre) {
-      // ジャンルのマッピング
       const genreMap: Record<string, string> = {
         '居酒屋': '大衆酒場',
         '焼鳥・串焼・鳥料理': '焼き鳥居酒屋',
@@ -118,14 +112,27 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
     setCandidates([]);
     setShowCandidates(false);
     setAddressNotice(
-      `✅ ホットペッパーから取得完了！\n店舗名: ${shop.name}\n住所: ${shop.address}\n最寄り駅: ${shop.station_name}\nジャンル: ${shop.genre}${shop.budget ? `\n予算: ${shop.budget}` : ''}`
+      `✅ 店舗情報を自動取得完了！\n店舗名: ${shop.name}\n住所: ${shop.address}\n最寄り駅: ${shop.station_name}`
     );
   };
+
+  const [taste, setTaste] = useState(5);
+  const [atmosphere, setAtmosphere] = useState(5);
+  const [drink, setDrink] = useState(5);
+  const [price, setPrice] = useState(4);
+  const [cost, setCost] = useState(4500);
+  const [comment, setComment] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !address) {
       setError('店舗名と住所を入力してください。');
+      return;
+    }
+
+    const token = localStorage.getItem('cheers_token');
+    if (!token) {
+      setError('店舗登録にはログインが必要です。');
       return;
     }
 
@@ -135,7 +142,10 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
     try {
       const res = await fetch('/api/shops', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           name,
           category,
@@ -146,16 +156,47 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
           lng: shopLng,
           japanese_staff_ratio: japaneseStaffRatio,
           private_room_type: privateRoomType,
-          image_url: imageUrl || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60',
-          user_id: currentUser?.id
+          image_url: imageUrl || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60'
         })
       });
 
+      const data = await res.json();
+
+      if (res.status === 409) {
+        // 重複店舗が検出された場合、既存店舗のページを開く
+        if (data.existingShopId) {
+          onShopAdded(data.existingShopId);
+          onClose();
+        } else {
+          setError(data.error || 'この店舗は既に登録されています。');
+        }
+        return;
+      }
+
       if (res.ok) {
-        onShopAdded();
+        try {
+          await fetch(`/api/shops/${data.id}/reviews`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              taste_rating: taste,
+              atmosphere_rating: atmosphere,
+              drink_rating: drink,
+              price_rating: price,
+              cost_per_person: cost,
+              comment: comment || '店舗を登録しました！'
+            })
+          });
+        } catch (err) {
+          console.error('Review submit error:', err);
+        }
+
+        onShopAdded(data.id);
         onClose();
       } else {
-        const data = await res.json();
         setError(data.error || '登録に失敗しました。');
       }
     } catch (e: any) {
@@ -205,7 +246,7 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
           新しい飲み会店舗を追加
         </h2>
         <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '20px', lineHeight: 1.5 }}>
-          店舗名を入力して検索すると、ホットペッパーから住所・最寄り駅が自動セットされます
+          店舗名を入力して検索すると、住所・最寄り駅が自動セットされます
         </p>
 
         {error && (
@@ -221,7 +262,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
         )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* 店舗名 + 検索ボタン */}
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
               店舗名 <span style={{ color: '#ef4444' }}>*</span>
@@ -252,7 +292,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             </div>
           </div>
 
-          {/* ホットペッパー候補一覧 */}
           {showCandidates && candidates.length > 0 && (
             <div style={{
               background: 'rgba(30, 41, 59, 0.9)',
@@ -281,11 +320,8 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
                     borderBottom: i < candidates.length - 1 ? '1px solid rgba(71, 85, 105, 0.4)' : 'none',
                     cursor: 'pointer',
                     textAlign: 'left',
-                    transition: 'background 0.2s',
                     color: '#f8fafc'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.1)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
                   {c.photo_url ? (
                     <img src={c.photo_url} alt="" style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
@@ -299,9 +335,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
                     <div style={{ fontSize: '0.75rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       📍 {c.address}
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>
-                      🚉 {c.station_name} ・ {c.genre}{c.budget ? ` ・ ${c.budget}` : ''}
-                    </div>
                   </div>
                   <ChevronRight size={18} color="#475569" style={{ flexShrink: 0 }} />
                 </button>
@@ -309,7 +342,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             </div>
           )}
 
-          {/* カテゴリ */}
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
               ジャンル / カテゴリ
@@ -332,11 +364,9 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             </select>
           </div>
 
-          {/* 住所 */}
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
               住所 <span style={{ color: '#ef4444' }}>*</span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>自動取得 or 手動入力</span>
             </label>
             <div style={{ position: 'relative' }}>
               <input
@@ -351,7 +381,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             </div>
           </div>
 
-          {/* 最寄り駅 ＆ 徒歩分数 */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
@@ -381,7 +410,6 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             </div>
           </div>
 
-          {/* 個室・スタッフ率 */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
@@ -412,10 +440,9 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             </div>
           </div>
 
-          {/* 画像URL */}
           <div>
             <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-              店舗写真 URL（任意・ホットペッパーから自動取得）
+              店舗写真 URL（任意）
             </label>
             <input
               type="url"
@@ -426,8 +453,58 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
             />
           </div>
 
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '10px',
+            padding: '14px',
+            marginTop: '8px'
+          }}>
+            <label style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fbbf24', display: 'block', marginBottom: '10px' }}>
+              ⭐ あなたの初評価・アドバイスコメント（同時登録）
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '10px' }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>おいしさ</label>
+                <select value={taste} onChange={(e) => setTaste(Number(e.target.value))} style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '0.8rem' }}>
+                  {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>★ {n}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>雰囲気</label>
+                <select value={atmosphere} onChange={(e) => setAtmosphere(Number(e.target.value))} style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '0.8rem' }}>
+                  {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>★ {n}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>お酒の数</label>
+                <select value={drink} onChange={(e) => setDrink(Number(e.target.value))} style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '0.8rem' }}>
+                  {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>★ {n}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>コスパ</label>
+                <select value={price} onChange={(e) => setPrice(Number(e.target.value))} style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '0.8rem' }}>
+                  {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>★ {n}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.78rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>社員への口コミ・おすすめアドバイス</label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows={2}
+                placeholder="個室の雰囲気、おすすめのメニュー、二回目も行きたいかなど..."
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '0.82rem' }}
+              />
+            </div>
+          </div>
+
           <button type="submit" disabled={submitting} className="btn btn-primary" style={{ marginTop: '8px' }}>
-            {submitting ? '登録中...' : '店舗を追加する'}
+            {submitting ? '店舗＆評価を投稿中...' : '店舗と評価を追加する'}
           </button>
         </form>
       </div>

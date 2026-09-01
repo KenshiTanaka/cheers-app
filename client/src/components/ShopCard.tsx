@@ -7,7 +7,7 @@ interface ShopCardProps {
   onClick: () => void;
 }
 
-export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
+export const ShopCard: React.FC<ShopCardProps> = React.memo(({ shop, onClick }) => {
   return (
     <div
       className="glass-panel animate-fade-in"
@@ -34,16 +34,40 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
           position: 'absolute',
           top: '12px',
           left: '12px',
-          background: 'rgba(15, 23, 42, 0.85)',
-          backdropFilter: 'blur(4px)',
-          padding: '4px 10px',
-          borderRadius: '8px',
-          fontSize: '0.75rem',
-          fontWeight: 600,
-          color: '#fbbf24',
-          border: '1px solid rgba(245, 158, 11, 0.3)'
+          display: 'flex',
+          gap: '6px',
+          alignItems: 'center'
         }}>
-          {shop.category}
+          <span style={{
+            background: 'rgba(69, 26, 3, 0.85)',
+            backdropFilter: 'blur(4px)',
+            padding: '4px 10px',
+            borderRadius: '8px',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: '#fbbf24',
+            border: '1px solid rgba(245, 158, 11, 0.3)'
+          }}>
+            {shop.category}
+          </span>
+
+          {shop.vector_score !== undefined && (
+            <span style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: '#fff',
+              padding: '4px 10px',
+              borderRadius: '12px',
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <Sparkles size={13} />
+              マッチ度 {shop.vector_score}%
+            </span>
+          )}
         </div>
 
         {/* 総合評価スコア */}
@@ -84,12 +108,12 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
           <span>{shop.address}</span>
         </div>
 
-        {/* 4つの評価パラメータ（アイコン付きグリッド） */}
+        {/* 4つの評価パラメータ */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: '8px',
-          background: 'rgba(15, 23, 42, 0.5)',
+          background: 'rgba(69, 26, 3, 0.5)',
           padding: '10px',
           borderRadius: '10px',
           border: '1px solid rgba(255, 255, 255, 0.05)'
@@ -119,7 +143,28 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
           </div>
         </div>
 
-        {/* 属性タグ (個室 / 日本人店員率 / 予算) */}
+        {/* AIセマンティック類似理由コメント */}
+        {shop.matched_comment && (
+          <div style={{
+            marginTop: '10px',
+            padding: '8px 10px',
+            background: 'rgba(16, 185, 129, 0.1)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: '8px',
+            fontSize: '0.78rem',
+            color: '#a7f3d0',
+            lineHeight: 1.4
+          }}>
+            <div style={{ fontWeight: 700, color: '#34d399', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Sparkles size={12} /> AI判定の決め手口コミ:
+            </div>
+            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+              「{shop.matched_comment}」
+            </div>
+          </div>
+        )}
+
+        {/* 属性タグ */}
         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <span className="badge">
             <DoorClosed size={13} />
@@ -139,4 +184,4 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onClick }) => {
       </div>
     </div>
   );
-};
+});

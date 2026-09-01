@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User as UserIcon, Building, MapPin, Beer, Utensils } from 'lucide-react';
+import { X, Lock, Mail, User as UserIcon, Building, MapPin, Beer, Utensils, Fingerprint } from 'lucide-react';
+import { startAuthentication } from '@simplewebauthn/browser';
 import { User } from '../types';
 
 interface AuthModalProps {
@@ -22,6 +23,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
   const [selectedGenres, setSelectedGenres] = useState<string[]>(['大衆酒場', '焼き鳥居酒屋']);
 
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [error, setError] = useState('');
 
   const toggleGenre = (genre: string) => {
@@ -30,10 +32,60 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
     );
   };
 
+  // 🔑 パスキー (Face ID / 指紋認証) ログイン処理
+  const handlePasskeyLogin = async () => {
+    setError('');
+    setPasskeyLoading(true);
+
+    try {
+      // 1. 認証オプション・チャレンジを取得
+      const optsRes = await fetch('/api/auth/passkey/login-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email || undefined }),
+      });
+      const optsData = await optsRes.json();
+
+      if (!optsRes.ok) throw new Error(optsData.error || 'パスキー初期化に失敗しました');
+
+      // 2. ブラウザ生体認証ダイアログ（Face ID / Touch ID / Windows Hello）を起動
+      const asseResp = await startAuthentication(optsData.options);
+
+      // 3. 署名検証＆ログイン完了
+      const verifyRes = await fetch('/api/auth/passkey/login-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response: asseResp, challenge: optsData.challenge }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) throw new Error(verifyData.error || '生体認証に失敗しました');
+
+      onAuthSuccess(verifyData.user, verifyData.token);
+      onClose();
+    } catch (err: any) {
+      if (err.name !== 'NotAllowedError') {
+        setError(err.message || 'パスキー認証に失敗しました。端末にパスキーが登録されているかご確認ください。');
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    // 新規登録時のドメインチェック
+    if (!isLogin) {
+      const domain = email.split('@')[1]?.toLowerCase();
+      if (domain !== 'northsand.co.jp') {
+        setError('アカウント登録は @northsand.co.jp のメールアドレスのみ許可されています。');
+        setLoading(false);
+        return;
+      }
+    }
 
     const favoriteAreaCombined = [station1, station2, station3].filter(Boolean).join(', ');
     const favoriteFoodCombined = selectedGenres.join(', ');
@@ -102,8 +154,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
           {isLogin ? '🍺 チアーズにログイン' : '🍻 社員アカウント新規登録'}
         </h2>
         <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '20px' }}>
-          {isLogin ? '社内メンバーのアカウントでログインします' : 'プロフィールを登録しておすすすめ店舗情報を受け取りましょう'}
+          {isLogin ? '社内メンバーのアカウントでログインします' : 'プロフィールを登録しておすすめ店舗情報を受け取りましょう'}
         </p>
+
+        {/* 🔑 パスキー (Passkey) ワンタップ認証ボタン */}
+        {isLogin && (
+          <div style={{ marginBottom: '20px' }}>
+            <button
+              type="button"
+              onClick={handlePasskeyLogin}
+              disabled={passkeyLoading}
+              className="btn"
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.3) 100%)',
+                border: '1px solid #f59e0b',
+                color: '#fbbf24',
+                borderRadius: '10px',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                boxShadow: '0 4px 14px rgba(245, 158, 11, 0.2)',
+                cursor: 'pointer'
+              }}
+            >
+              <Fingerprint size={22} color="#fbbf24" />
+              <span>{passkeyLoading ? '生体認証を起動中...' : '🔑 パスキー (Face ID / 指紋認証) でログイン'}</span>
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0 6px 0', color: '#64748b', fontSize: '0.75rem' }}>
+              <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
+              <span style={{ padding: '0 10px' }}>またはパスワードでログイン</span>
+              <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
+            </div>
+          </div>
+        )}
 
         {error && (
           <div style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#fca5a5', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem' }}>
@@ -121,7 +209,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="yamada@cheers.com"
+              placeholder="yamada@northsand.co.jp"
               style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
             />
           </div>

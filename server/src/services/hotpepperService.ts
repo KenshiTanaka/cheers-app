@@ -1,7 +1,7 @@
 // ホットペッパーグルメサーチAPI サービス
 // https://webservice.recruit.co.jp/doc/hotpepper/reference.html
 
-const HOTPEPPER_API_KEY = '5c026a6238e0e4b8';
+const HOTPEPPER_API_KEY = process.env.HOTPEPPER_API_KEY || '5c026a6238e0e4b8';
 const HOTPEPPER_BASE_URL = 'https://webservice.recruit.co.jp/hotpepper/gourmet/v1/';
 
 export interface HotPepperShop {

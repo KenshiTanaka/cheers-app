@@ -46,4 +46,7 @@ export interface Shop {
   review_count: number;
   avg_cost: number;
   reviews?: Review[];
+  vector_score?: number;
+  matched_comment?: string;
+  matched_reasons?: string[];
 }

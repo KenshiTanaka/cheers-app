@@ -1,0 +1,272 @@
+import React, { useState } from 'react';
+import { X, User as UserIcon, Building, MapPin, Beer, Utensils, Save, Fingerprint } from 'lucide-react';
+import { startRegistration } from '@simplewebauthn/browser';
+import { User } from '../types';
+
+interface UserProfileModalProps {
+  currentUser: User;
+  onClose: () => void;
+  onUpdate: (updatedUser: User) => void;
+}
+
+export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser, onClose, onUpdate }) => {
+  const [name, setName] = useState(currentUser.name || '');
+  const [department, setDepartment] = useState(currentUser.department || '');
+  const [favoriteArea, setFavoriteArea] = useState(currentUser.favorite_area || '');
+  const [alcoholPreference, setAlcoholPreference] = useState(currentUser.alcohol_preference || '');
+  const [favoriteFood, setFavoriteFood] = useState(currentUser.favorite_food || '');
+  const [saving, setSaving] = useState(false);
+  const [passkeyRegistering, setPasskeyRegistering] = useState(false);
+  const [passkeyMsg, setPasskeyMsg] = useState('');
+
+  // 🔑 パスキー (Face ID / 指紋認証) 端末登録処理
+  const handleRegisterPasskey = async () => {
+    setPasskeyMsg('');
+    setPasskeyRegistering(true);
+
+    const token = localStorage.getItem('cheers_token');
+    if (!token) {
+      setPasskeyMsg('❌ パスキーの登録にはログインが必要です');
+      setPasskeyRegistering(false);
+      return;
+    }
+
+    try {
+      // 1. パスキー登録オプション・チャレンジ取得
+      const res = await fetch('/api/auth/passkey/register-options', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: currentUser.id }),
+      });
+      const optionsData = await res.json();
+      if (!res.ok) throw new Error(optionsData.error || '登録初期化に失敗しました');
+
+      // 2. ブラウザ生体認証ダイアログ（Face ID / Touch ID / Windows Hello）起動
+      const attResp = await startRegistration(optionsData);
+
+      // 3. 署名検証とサーバDB保存
+      const verifyRes = await fetch('/api/auth/passkey/register-verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ response: attResp }),
+      });
+      const verifyData = await verifyRes.json();
+
+      if (!verifyRes.ok) throw new Error(verifyData.error || 'パスキー検証に失敗しました');
+
+      setPasskeyMsg('✅ この端末の生体認証（パスキー）が正常に登録されました！次回からワンタップでログインできます。');
+    } catch (err: any) {
+      if (err.name !== 'NotAllowedError') {
+        setPasskeyMsg(`❌ エラー: ${err.message || 'パスキー登録に失敗しました'}`);
+      }
+    } finally {
+      setPasskeyRegistering(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const token = localStorage.getItem('cheers_token');
+    if (!token) {
+      alert('プロフィールの更新にはログインが必要です。');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const res = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name,
+          department,
+          favorite_area: favoriteArea,
+          alcohol_preference: alcoholPreference,
+          favorite_food: favoriteFood,
+        })
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        onUpdate(updated);
+        onClose();
+      } else {
+        const err = await res.json();
+        alert(err.error || '更新に失敗しました');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0, 0, 0, 0.8)',
+      backdropFilter: 'blur(8px)',
+      zIndex: 100,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '16px'
+    }}>
+      <div className="glass-panel animate-fade-in" style={{
+        width: '100%',
+        maxWidth: '520px',
+        position: 'relative',
+        padding: '28px'
+      }}>
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            background: 'none',
+            border: 'none',
+            color: '#94a3b8',
+            cursor: 'pointer'
+          }}
+        >
+          <X size={22} />
+        </button>
+
+        <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <UserIcon size={22} color="#f59e0b" />
+          マイプロフィール・好みの設定
+        </h3>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+              氏名
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+              <Building size={14} color="#f59e0b" /> 所属部署 / 現場名
+            </label>
+            <input
+              type="text"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              placeholder="例: 大手町現場, 新宿営業部"
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+              <MapPin size={14} color="#f59e0b" /> よく使う駅（カンマ区切りで3つまで）
+            </label>
+            <input
+              type="text"
+              value={favoriteArea}
+              onChange={(e) => setFavoriteArea(e.target.value)}
+              placeholder="例: 神田駅, 大手町駅, 有楽町駅"
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+              <Beer size={14} color="#f59e0b" /> お酒の好み
+            </label>
+            <select
+              value={alcoholPreference}
+              onChange={(e) => setAlcoholPreference(e.target.value)}
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
+            >
+              <option value="ビール・ハイボール派">🍺 ビール・ハイボール派</option>
+              <option value="日本酒・焼酎党">🍶 日本酒・焼酎党</option>
+              <option value="クラフトビール・ワイン">🍷 クラフトビール・ワイン派</option>
+              <option value="サワー・カクテル派">🍹 サワー・カクテル派</option>
+              <option value="お酒は弱め・ソフトドリンク">ソフトドリンクメイン</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+              <Utensils size={14} color="#f59e0b" /> 好きな料理ジャンル
+            </label>
+            <input
+              type="text"
+              value={favoriteFood}
+              onChange={(e) => setFavoriteFood(e.target.value)}
+              placeholder="例: 焼き鳥, 刺身・海鮮, イタリアン"
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
+            />
+          </div>
+
+          <button type="submit" disabled={saving} className="btn btn-primary" style={{ marginTop: '10px' }}>
+            <Save size={16} />
+            <span>{saving ? '保存中...' : 'プロフィールを更新する'}</span>
+          </button>
+        </form>
+
+        {/* 🔑 生体認証（パスキー）追加登録エリア */}
+        <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+          <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Fingerprint size={18} color="#f59e0b" />
+            生体認証（パスキー）ログインの設定
+          </h4>
+          <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '12px' }}>
+            お使いのスマホの Face ID / 指紋認証 や PCの Touch ID / Windows Hello を登録すると、次回からパスワード入力なしで一発ログインできます。
+          </p>
+
+          <button
+            type="button"
+            onClick={handleRegisterPasskey}
+            disabled={passkeyRegistering}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              background: 'rgba(245, 158, 11, 0.15)',
+              border: '1px solid #f59e0b',
+              color: '#fbbf24',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+          >
+            <Fingerprint size={18} />
+            <span>{passkeyRegistering ? '生体認証を起動中...' : '🔑 この端末の生体認証（パスキー）を登録する'}</span>
+          </button>
+
+          {passkeyMsg && (
+            <div style={{ marginTop: '10px', fontSize: '0.8rem', color: passkeyMsg.startsWith('✅') ? '#34d399' : '#fca5a5', padding: '8px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.6)' }}>
+              {passkeyMsg}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

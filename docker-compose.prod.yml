@@ -3,51 +3,49 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-      target: dev
-    container_name: cheers_backend_dev
+      target: runner
+    container_name: cheers_backend
     ports:
       - "3001:3001"
     volumes:
-      - ./server:/app
-      - backend_node_modules:/app/node_modules
-      - cheers_db_data_dev:/app/data
+      - cheers_db_data:/app/data
     environment:
       - PORT=3001
-      - NODE_ENV=development
+      - NODE_ENV=production
       - DATABASE_PATH=/app/data/database.sqlite
       - JWT_SECRET=${JWT_SECRET}
       - RP_ID=${RP_ID}
       - HOTPEPPER_API_KEY=${HOTPEPPER_API_KEY}
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./client
       dockerfile: Dockerfile
-      target: dev
-    container_name: cheers_frontend_dev
+      target: build
+    container_name: cheers_frontend
     ports:
       - "3000:3000"
-    volumes:
-      - ./client:/app
-      - frontend_node_modules:/app/node_modules
     environment:
-      - VITE_API_BASE_URL=/api
+      - VITE_API_BASE_URL=http://backend:3001/api
     depends_on:
       - backend
+    restart: unless-stopped
 
   redmine_db:
     image: postgres:16-alpine
-    container_name: redmine_db_dev
+    container_name: redmine_db
     environment:
       POSTGRES_DB: redmine
       POSTGRES_USER: redmine
       POSTGRES_PASSWORD: ${REDMINE_DB_PASSWORD}
     volumes:
-      - redmine_db_data_dev:/var/lib/postgresql/data
+      - redmine_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redmine:
     image: redmine:6
-    container_name: redmine_app_dev
+    container_name: redmine_app
     ports:
       - "8080:3000"
     environment:
@@ -57,13 +55,12 @@ services:
       REDMINE_DB_PASSWORD: ${REDMINE_DB_PASSWORD}
       REDMINE_SECRET_KEY_BASE: ${REDMINE_SECRET_KEY_BASE}
     volumes:
-      - redmine_files_dev:/usr/src/redmine/files
+      - redmine_files:/usr/src/redmine/files
     depends_on:
       - redmine_db
+    restart: unless-stopped
 
 volumes:
-  backend_node_modules:
-  frontend_node_modules:
-  cheers_db_data_dev:
-  redmine_db_data_dev:
-  redmine_files_dev:
+  cheers_db_data:
+  redmine_db_data:
+  redmine_files:

@@ -56,6 +56,7 @@ services:
       REDMINE_SECRET_KEY_BASE: ${REDMINE_SECRET_KEY_BASE}
     volumes:
       - redmine_files:/usr/src/redmine/files
+      - /home/kenshi/repos:/var/lib/redmine/repositories:ro
     depends_on:
       - redmine_db
     restart: unless-stopped

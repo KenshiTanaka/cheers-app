@@ -4,7 +4,6 @@
 set -u
 
 ALERT_LOG="/var/log/cheers-security-alerts.log"
-STATE_DIR="/var/lib/cheers-security"
 
 if [ "${1:-}" = "--reset-baseline" ]; then
   sudo /usr/local/bin/cheers-security-monitor.sh --init
@@ -18,23 +17,33 @@ echo "============================================================"
 echo ""
 
 echo "【1. 最近のセキュリティアラート（直近10件）】"
-if [ -f "$ALERT_LOG" ] && [ -s "$ALERT_LOG" ]; then
-  sudo tail -n 10 "$ALERT_LOG"
+if [ -r "$ALERT_LOG" ] && grep -qE "CRITICAL|WARN" "$ALERT_LOG" 2>/dev/null; then
+  grep -E "CRITICAL|WARN" "$ALERT_LOG" | tail -n 10
 else
   echo " ✅ アラートは検出されていません（正常）"
 fi
 echo ""
 
 echo "【2. fail2ban 不正ログイン自動ブロック状況】"
-sudo fail2ban-client status sshd 2>/dev/null | grep -E "Currently failed|Total failed|Currently banned|Total banned|Banned IP" || echo " fail2ban 情報取得不可"
+F2B_OUT=$(sudo -n fail2ban-client status sshd 2>/dev/null || journalctl -u fail2ban --since "24 hours ago" --no-pager 2>/dev/null | grep -E "Ban |Unban " | tail -n 5 || true)
+if [ -n "$F2B_OUT" ]; then
+  echo "$F2B_OUT"
+else
+  echo " ✅ 直近24時間での自動ブロック（BAN）はありません（fail2ban 稼働中）"
+fi
 echo ""
 
 echo "【3. 最近の SSH ログイン成功履歴（直近5件）】"
-last -n 5 -i | head -n 5
+SSH_LOGINS=$(journalctl -u ssh -u sshd --no-pager 2>/dev/null | grep "Accepted " | tail -n 5 || true)
+if [ -n "$SSH_LOGINS" ]; then
+  echo "$SSH_LOGINS"
+else
+  echo " （履歴なし、または sudo cheers-sec-status で詳細表示）"
+fi
 echo ""
 
 echo "【4. Cheers App アプリ層 攻撃・異常アクセス検知ログ（直近10件）】"
-APP_LOGS=$(sudo docker exec cheers_backend sh -c 'if [ -f /app/data/security-audit.log ]; then tail -n 10 /app/data/security-audit.log; fi' 2>/dev/null || true)
+APP_LOGS=$(docker exec cheers_backend sh -c 'if [ -f /app/data/security-audit.log ]; then tail -n 10 /app/data/security-audit.log; fi' 2>/dev/null || true)
 if [ -n "$APP_LOGS" ]; then
   echo "$APP_LOGS"
 else

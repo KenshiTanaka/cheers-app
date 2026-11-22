@@ -14,7 +14,7 @@ MOTD_ALERT="/etc/update-motd.d/99-cheers-security-alert"
 
 mkdir -p "$STATE_DIR"
 touch "$ALERT_LOG"
-chmod 600 "$ALERT_LOG"
+chmod 644 "$ALERT_LOG"
 
 # 監視対象クリティカルファイル
 FIM_FILES=(

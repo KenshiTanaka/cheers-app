@@ -10,12 +10,17 @@ import {
 } from '@simplewebauthn/server';
 
 export const authRouter = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'cheers_secret_key_2026_dev_only';
-if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-  console.warn('[Auth] WARNING: JWT_SECRET is not set in production environment!');
+const envJwtSecret = process.env.JWT_SECRET?.trim();
+if (process.env.NODE_ENV === 'production' && (!envJwtSecret || envJwtSecret.length < 16)) {
+  throw new Error('[Auth] FATAL: JWT_SECRET must be set (at least 16 chars) in production!');
 }
+const JWT_SECRET = envJwtSecret || 'cheers_secret_key_2026_dev_only';
 const RP_NAME = 'Cheers App';
 const ALLOWED_DOMAIN = 'northsand.co.jp';
+const MAX_ACTIVE_CHALLENGES = 1000;
+
+const clampStr = (val: unknown, maxLen: number): string =>
+  typeof val === 'string' ? val.trim().slice(0, maxLen) : '';
 
 const getExpectedOrigins = (rpID: string) => [
   `https://${rpID}`,
@@ -71,10 +76,14 @@ authRouter.post('/signup', async (req, res) => {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
-    const trimmedName = String(name).trim();
+    const trimmedName = clampStr(name, 100);
 
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'パスワードは6文字以上で入力してください。' });
+    if (!trimmedName || normalizedEmail.length > 254) {
+      return res.status(400).json({ error: '有効なメールアドレスと氏名を入力してください。' });
+    }
+
+    if (String(password).length < 6 || String(password).length > 128) {
+      return res.status(400).json({ error: 'パスワードは6文字以上128文字以下で入力してください。' });
     }
 
     // メールドメイン制限: @northsand.co.jp のみ許可
@@ -92,7 +101,15 @@ authRouter.post('/signup', async (req, res) => {
     const result = await dbRun(`
       INSERT INTO users (email, password, name, department, favorite_area, alcohol_preference, favorite_food)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [normalizedEmail, hashedPassword, trimmedName, department || '', favorite_area || '', alcohol_preference || '', favorite_food || '']);
+    `, [
+      normalizedEmail,
+      hashedPassword,
+      trimmedName,
+      clampStr(department, 100),
+      clampStr(favorite_area, 200),
+      clampStr(alcohol_preference, 100),
+      clampStr(favorite_food, 300)
+    ]);
 
     const userId = result.lastID;
     const token = jwt.sign({ id: userId, email: normalizedEmail }, JWT_SECRET, { expiresIn: '7d' });
@@ -152,12 +169,24 @@ authRouter.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res
   try {
     const { name, department, favorite_area, alcohol_preference, favorite_food } = req.body;
     const userId = req.user!.id;
+    const trimmedName = clampStr(name, 100);
+
+    if (!trimmedName) {
+      return res.status(400).json({ error: '氏名は必須です。' });
+    }
 
     await dbRun(`
       UPDATE users 
       SET name = ?, department = ?, favorite_area = ?, alcohol_preference = ?, favorite_food = ?
       WHERE id = ?
-    `, [name || '', department || '', favorite_area || '', alcohol_preference || '', favorite_food || '', userId]);
+    `, [
+      trimmedName,
+      clampStr(department, 100),
+      clampStr(favorite_area, 200),
+      clampStr(alcohol_preference, 100),
+      clampStr(favorite_food, 300),
+      userId
+    ]);
 
     const updatedUser = await dbGet('SELECT id, email, name, department, favorite_area, alcohol_preference, favorite_food FROM users WHERE id = ?', [userId]);
     return res.json(updatedUser);
@@ -267,7 +296,8 @@ authRouter.post('/passkey/login-options', async (req, res) => {
     let userId: number | null = null;
 
     if (email) {
-      const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const user = await dbGet('SELECT id FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
       if (user) {
         userId = user.id;
         const passkeys = await dbAll('SELECT id, transports FROM authenticators WHERE user_id = ?', [user.id]);
@@ -288,6 +318,10 @@ authRouter.post('/passkey/login-options', async (req, res) => {
     // ユーザー指定ありの場合は DB に保持、Discoverable Credential 用にメモリマップにも保存
     if (userId) {
       await dbRun('UPDATE users SET current_challenge = ? WHERE id = ?', [options.challenge, userId]);
+    }
+    if (activeLoginChallenges.size >= MAX_ACTIVE_CHALLENGES) {
+      const oldestKey = activeLoginChallenges.keys().next().value;
+      if (oldestKey !== undefined) activeLoginChallenges.delete(oldestKey);
     }
     activeLoginChallenges.set(options.challenge, {
       challenge: options.challenge,
@@ -315,10 +349,15 @@ authRouter.post('/passkey/login-verify', async (req, res) => {
     const user = await dbGet('SELECT * FROM users WHERE id = ?', [passkey.user_id]);
     if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません。' });
 
-    // DB の current_challenge または アクティブな発行済みチャレンジから検証対象のチャレンジを復元
+    // DB の current_challenge または アクティブな発行済みチャレンジ（有効期限内）から検証対象を復元
     let expectedChallenge = user.current_challenge;
     if (!expectedChallenge && challenge && activeLoginChallenges.has(challenge)) {
-      expectedChallenge = activeLoginChallenges.get(challenge)!.challenge;
+      const entry = activeLoginChallenges.get(challenge)!;
+      if (entry.expiresAt > Date.now()) {
+        expectedChallenge = entry.challenge;
+      } else {
+        activeLoginChallenges.delete(challenge);
+      }
     }
 
     if (!expectedChallenge) {

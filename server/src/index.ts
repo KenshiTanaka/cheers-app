@@ -14,10 +14,45 @@ const PORT = process.env.PORT || 3001;
 
 // Nginx / Cloudflare Tunnel 配下でクライアントIPを正しく認識させる
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
 // セキュリティヘッダー強化 (Helmet)
 app.use(helmet({
-  contentSecurityPolicy: false, // SPA対応
+  contentSecurityPolicy: false, // SPA配信はNginx側でCSPを付与
+  crossOriginEmbedderPolicy: false,
+}));
+
+// CORS 制限（許可されたオリジンまたは同一オリジンリクエストのみ許可）
+const customOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+const isAllowedOrigin = (origin: string): boolean => {
+  if (customOrigins.includes(origin)) return true;
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    if (host.endsWith('.trycloudflare.com') && parsed.protocol === 'https:') return true;
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // 同一オリジン・サーバー間通信・ヘルスチェック (Originヘッダーなし) は許可
+    if (!origin || isAllowedOrigin(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy: Origin not allowed'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // 一般 API レート制限（15分間で300回）
@@ -41,10 +76,11 @@ const authLimiter = rateLimit({
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
+app.use('/api/auth/passkey/login-options', authLimiter);
+app.use('/api/auth/passkey/login-verify', authLimiter);
 
-// ミドルウェア
-app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// リクエストボディサイズ制限
+app.use(express.json({ limit: '256kb' }));
 
 // API ルーティング登録
 app.use('/api/auth', authRouter);
@@ -55,10 +91,13 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', app: 'Cheers Backend API', timestamp: new Date().toISOString() });
 });
 
-// グローバルエラーハンドラ
+// グローバルエラーハンドラ（CORS拒否や内部エラーの安全な返却）
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  if (err.message.startsWith('CORS policy:')) {
+    return res.status(403).json({ error: '許可されていないオリジンからのリクエストです。' });
+  }
   console.error('[Server] Unhandled error:', err);
-  res.status(500).json({ error: 'サーバー内部エラーが発生しました。' });
+  return res.status(500).json({ error: 'サーバー内部エラーが発生しました。' });
 });
 
 // データベース初期化完了後にサーバーを起動

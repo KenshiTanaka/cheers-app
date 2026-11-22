@@ -27,16 +27,36 @@ const SHOP_WITH_STATS_SELECT = `
 `;
 
 const DEFAULT_SHOP_IMAGE = 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60';
+const ALLOWED_PRIVATE_ROOMS = new Set(['あり', '半個室', 'なし']);
 
 function isValidRating(val: unknown): boolean {
   const num = Number(val);
   return Number.isInteger(num) && num >= 1 && num <= 5;
 }
 
+function sanitizeImageUrl(url: unknown): string {
+  if (typeof url !== 'string' || !url.trim()) return DEFAULT_SHOP_IMAGE;
+  const trimmed = url.trim();
+  if (trimmed.length > 2048) return DEFAULT_SHOP_IMAGE;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return parsed.toString();
+    }
+  } catch {
+    // 無効なURLはデフォルト画像にフォールバック
+  }
+  return DEFAULT_SHOP_IMAGE;
+}
+
+function clampText(val: unknown, maxLen: number): string {
+  return typeof val === 'string' ? val.trim().slice(0, maxLen) : '';
+}
+
 // セマンティック・ベクトル検索レコメンド API
 shopsRouter.get('/recommend', async (req: AuthenticatedRequest, res) => {
   try {
-    const query = typeof req.query.query === 'string' ? req.query.query : '';
+    const query = clampText(req.query.query, 200);
     let targetText = query;
 
     // セキュリティ対策: クエリパラメータではなく認証済みトークンのユーザーIDを使用
@@ -99,7 +119,7 @@ shopsRouter.get('/recommend', async (req: AuthenticatedRequest, res) => {
 // ホットペッパーAPIで店舗名から住所・最寄り駅を検索する API
 shopsRouter.get('/search-place', async (req, res) => {
   try {
-    const name = typeof req.query.name === 'string' ? req.query.name.trim() : '';
+    const name = clampText(req.query.name, 100);
     if (!name) {
       return res.status(400).json({ error: '店舗名を入力してください。' });
     }
@@ -249,8 +269,13 @@ shopsRouter.post('/', async (req: AuthenticatedRequest, res) => {
       return res.status(400).json({ error: '店舗名と住所は必須です。' });
     }
 
-    const trimmedName = String(name).trim();
-    const trimmedAddress = String(address).trim();
+    const trimmedName = clampText(name, 120);
+    const trimmedAddress = clampText(address, 250);
+    const safeCategory = clampText(category, 60) || '大衆酒場';
+    const safePrivateRoom = typeof private_room_type === 'string' && ALLOWED_PRIVATE_ROOMS.has(private_room_type)
+      ? private_room_type
+      : 'なし';
+    const safeImageUrl = sanitizeImageUrl(image_url);
 
     // 🔍 既存の同名店舗または同一住所の店舗がないかチェック
     const existingShop = await dbGet<any>('SELECT id, name, address FROM shops WHERE name = ? OR address = ?', [trimmedName, trimmedAddress]);
@@ -261,8 +286,8 @@ shopsRouter.post('/', async (req: AuthenticatedRequest, res) => {
       });
     }
 
-    let finalStationName = station_name || '';
-    let finalWalkMinutes = walk_minutes !== undefined && walk_minutes !== '' ? Math.max(1, Number(walk_minutes)) : 3;
+    let finalStationName = clampText(station_name, 60);
+    let finalWalkMinutes = walk_minutes !== undefined && walk_minutes !== '' ? Math.min(120, Math.max(1, Number(walk_minutes))) : 3;
     const finalLat = Number(lat) || 0;
     const finalLng = Number(lng) || 0;
 
@@ -281,15 +306,15 @@ shopsRouter.post('/', async (req: AuthenticatedRequest, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       trimmedName,
-      category || '大衆酒場',
+      safeCategory,
       trimmedAddress,
       finalLat,
       finalLng,
       finalStationName,
       finalWalkMinutes,
       staffRatio,
-      private_room_type || 'なし',
-      image_url || DEFAULT_SHOP_IMAGE,
+      safePrivateRoom,
+      safeImageUrl,
       userId
     ]);
 
@@ -321,7 +346,8 @@ shopsRouter.post('/:id/reviews', async (req: AuthenticatedRequest, res) => {
       return res.status(400).json({ error: 'すべての評価項目を1〜5の整数で入力してください。' });
     }
 
-    const cost = cost_per_person ? Math.max(0, Number(cost_per_person)) : 4000;
+    const cost = cost_per_person ? Math.min(1000000, Math.max(0, Number(cost_per_person))) : 4000;
+    const safeComment = clampText(comment, 2000);
 
     const result = await dbRun(`
       INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment, is_anonymous)
@@ -334,7 +360,7 @@ shopsRouter.post('/:id/reviews', async (req: AuthenticatedRequest, res) => {
       Number(drink_rating),
       Number(price_rating),
       cost,
-      comment || '',
+      safeComment,
       is_anonymous ? 1 : 0
     ]);
 

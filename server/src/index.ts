@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { initDB } from './db';
 import { authRouter } from './routes/auth';
 import { shopsRouter } from './routes/shops';
+import { securityAuditMiddleware } from './middleware/securityAudit';
 
 dotenv.config();
 
@@ -72,6 +73,9 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: '認証試行回数の上限を超えました。しばらく時間をおいて再試行してください。' }
 });
+
+// セキュリティ監査・攻撃パターン検知ミドルウェア
+app.use(securityAuditMiddleware);
 
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);

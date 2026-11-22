@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { dbGet, dbRun, dbAll } from '../db';
+import { logSecurityEvent } from '../middleware/securityAudit';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -144,6 +145,7 @@ authRouter.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    logSecurityEvent('INFO', 'USER_LOGIN_SUCCESS', { userId: user.id, email: user.email, ip: req.ip });
 
     const { password: _, current_challenge: __, ...userWithoutPassword } = user;
     return res.json({ token, user: userWithoutPassword });

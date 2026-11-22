@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X, PlusCircle, MapPin, Search, Loader2, ChevronRight } from 'lucide-react';
 import { User } from '../types';
+import { SHOP_CATEGORIES, DEFAULT_SHOP_IMAGE } from '../constants';
+import { authFetch, getAuthToken } from '../utils/api';
 
 interface AddShopModalProps {
   currentUser: User | null;
@@ -21,7 +23,7 @@ interface ShopCandidate {
   hotpepper_url: string;
 }
 
-export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose, onShopAdded }) => {
+export const AddShopModal: React.FC<AddShopModalProps> = ({ onClose, onShopAdded }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('大衆酒場');
   const [address, setAddress] = useState('');
@@ -53,7 +55,7 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
     setShowCandidates(false);
 
     try {
-      const res = await fetch(`/api/shops/search-place?name=${encodeURIComponent(name.trim())}`);
+      const res = await authFetch(`/api/shops/search-place?name=${encodeURIComponent(name.trim())}`);
 
       if (res.status === 404) {
         setError(`「${name}」に該当する店舗が見つかりませんでした。\n住所を手動で入力してください。`);
@@ -130,8 +132,7 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
       return;
     }
 
-    const token = localStorage.getItem('cheers_token');
-    if (!token) {
+    if (!getAuthToken()) {
       setError('店舗登録にはログインが必要です。');
       return;
     }
@@ -140,12 +141,8 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
     setError('');
 
     try {
-      const res = await fetch('/api/shops', {
+      const res = await authFetch('/api/shops', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           name,
           category,
@@ -156,7 +153,7 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
           lng: shopLng,
           japanese_staff_ratio: japaneseStaffRatio,
           private_room_type: privateRoomType,
-          image_url: imageUrl || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60'
+          image_url: imageUrl || DEFAULT_SHOP_IMAGE
         })
       });
 
@@ -175,12 +172,8 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
 
       if (res.ok) {
         try {
-          await fetch(`/api/shops/${data.id}/reviews`, {
+          await authFetch(`/api/shops/${data.id}/reviews`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
             body: JSON.stringify({
               taste_rating: taste,
               atmosphere_rating: atmosphere,
@@ -351,16 +344,9 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
               onChange={(e) => setCategory(e.target.value)}
               style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
             >
-              <option value="大衆酒場">🍺 大衆酒場</option>
-              <option value="焼き鳥居酒屋">🍢 焼き鳥居酒屋</option>
-              <option value="海鮮居酒屋">🐟 海鮮居酒屋</option>
-              <option value="おでん専門店">🍢 おでん専門店</option>
-              <option value="創作和食居酒屋">🍣 創作和食居酒屋</option>
-              <option value="家庭料理専門店">🍱 家庭料理専門店</option>
-              <option value="立ち飲み居酒屋">🍻 立ち飲み居酒屋</option>
-              <option value="鍋料理専門店">🍲 鍋料理専門店</option>
-              <option value="洋風バル">🍷 洋風バル</option>
-              <option value="韓国料理居酒屋">🇰🇷 韓国料理居酒屋</option>
+              {SHOP_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
             </select>
           </div>
 
@@ -403,7 +389,7 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
                 min="1"
                 max="60"
                 value={walkMinutes}
-                onChange={(e) => setWalkMinutes(Number(e.target.value))}
+                onChange={(e) => setWalkMinutes(e.target.value === '' ? '' : Number(e.target.value))}
                 placeholder="自動"
                 style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
               />
@@ -489,6 +475,18 @@ export const AddShopModal: React.FC<AddShopModalProps> = ({ currentUser, onClose
                   {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>★ {n}</option>)}
                 </select>
               </div>
+            </div>
+
+            <div style={{ marginBottom: '10px' }}>
+              <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>予算 (円/人)</label>
+              <input
+                type="number"
+                min="500"
+                step="500"
+                value={cost}
+                onChange={(e) => setCost(Number(e.target.value))}
+                style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '0.8rem' }}
+              />
             </div>
 
             <div>

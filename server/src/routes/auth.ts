@@ -10,8 +10,20 @@ import {
 } from '@simplewebauthn/server';
 
 export const authRouter = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'cheers_secret_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'cheers_secret_key_2026_dev_only';
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.warn('[Auth] WARNING: JWT_SECRET is not set in production environment!');
+}
 const RP_NAME = 'Cheers App';
+const ALLOWED_DOMAIN = 'northsand.co.jp';
+
+const getExpectedOrigins = (rpID: string) => [
+  `https://${rpID}`,
+  `http://${rpID}:3000`,
+  `http://${rpID}`,
+  'http://localhost:3000',
+  'http://localhost'
+];
 
 // ログイン時の短期チャレンジ保持用メモリマップ (TTL: 5分)
 const activeLoginChallenges = new Map<string, { challenge: string; expiresAt: number }>();
@@ -58,31 +70,38 @@ authRouter.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'メールアドレス、パスワード、氏名は必須です。' });
     }
 
-    // メールドメイン制限: @northsand.co.jp のみ許可
-    const allowedDomain = 'northsand.co.jp';
-    const emailDomain = email.split('@')[1]?.toLowerCase();
-    if (emailDomain !== allowedDomain) {
-      return res.status(403).json({ error: `アカウント登録は @${allowedDomain} のメールアドレスのみ許可されています。` });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const trimmedName = String(name).trim();
+
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'パスワードは6文字以上で入力してください。' });
     }
 
-    const existingUser = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+    // メールドメイン制限: @northsand.co.jp のみ許可
+    const emailDomain = normalizedEmail.split('@')[1];
+    if (emailDomain !== ALLOWED_DOMAIN) {
+      return res.status(403).json({ error: `アカウント登録は @${ALLOWED_DOMAIN} のメールアドレスのみ許可されています。` });
+    }
+
+    const existingUser = await dbGet('SELECT id FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
     if (existingUser) {
       return res.status(400).json({ error: 'このメールアドレスは既に登録されています。' });
     }
 
-    const hashedPassword = bcrypt.hashSync(password, 10);
+    const hashedPassword = await bcrypt.hash(String(password), 10);
     const result = await dbRun(`
       INSERT INTO users (email, password, name, department, favorite_area, alcohol_preference, favorite_food)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [email, hashedPassword, name, department || '', favorite_area || '', alcohol_preference || '', favorite_food || '']);
+    `, [normalizedEmail, hashedPassword, trimmedName, department || '', favorite_area || '', alcohol_preference || '', favorite_food || '']);
 
     const userId = result.lastID;
-    const token = jwt.sign({ id: userId, email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: userId, email: normalizedEmail }, JWT_SECRET, { expiresIn: '7d' });
 
     const user = await dbGet('SELECT id, email, name, department, favorite_area, alcohol_preference, favorite_food FROM users WHERE id = ?', [userId]);
 
     return res.json({ token, user });
   } catch (error: any) {
+    console.error('[Auth] Signup error:', error);
     return res.status(500).json({ error: 'ユーザー登録中にエラーが発生しました。' });
   }
 });
@@ -96,12 +115,13 @@ authRouter.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'メールアドレスとパスワードを入力してください。' });
     }
 
-    const user = await dbGet<any>('SELECT * FROM users WHERE email = ?', [email]);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await dbGet<any>('SELECT * FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
     if (!user) {
       return res.status(401).json({ error: 'メールアドレスまたはパスワードが正しくありません。' });
     }
 
-    const isValid = bcrypt.compareSync(password, user.password);
+    const isValid = await bcrypt.compare(String(password), user.password);
     if (!isValid) {
       return res.status(401).json({ error: 'メールアドレスまたはパスワードが正しくありません。' });
     }
@@ -111,6 +131,7 @@ authRouter.post('/login', async (req, res) => {
     const { password: _, current_challenge: __, ...userWithoutPassword } = user;
     return res.json({ token, user: userWithoutPassword });
   } catch (error: any) {
+    console.error('[Auth] Login error:', error);
     return res.status(500).json({ error: 'ログイン中にエラーが発生しました。' });
   }
 });
@@ -196,13 +217,7 @@ authRouter.post('/passkey/register-verify', authMiddleware, async (req: Authenti
     if (!user || !user.current_challenge) return res.status(400).json({ error: '無効または有効期限切れのチャレンジです。' });
 
     const rpID = getRpId(req);
-    const expectedOrigin = [
-      `https://${rpID}`,
-      `http://${rpID}:3000`,
-      `http://${rpID}`,
-      'http://localhost:3000',
-      'http://localhost'
-    ];
+    const expectedOrigin = getExpectedOrigins(rpID);
 
     const verification = await verifyRegistrationResponse({
       response,
@@ -311,13 +326,7 @@ authRouter.post('/passkey/login-verify', async (req, res) => {
     }
 
     const rpID = getRpId(req);
-    const expectedOrigin = [
-      `https://${rpID}`,
-      `http://${rpID}:3000`,
-      `http://${rpID}`,
-      'http://localhost:3000',
-      'http://localhost'
-    ];
+    const expectedOrigin = getExpectedOrigins(rpID);
 
     const verification = await verifyAuthenticationResponse({
       response,

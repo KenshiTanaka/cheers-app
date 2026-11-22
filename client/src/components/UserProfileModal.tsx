@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { X, User as UserIcon, Building, MapPin, Beer, Utensils, Save, Fingerprint } from 'lucide-react';
 import { startRegistration } from '@simplewebauthn/browser';
 import { User } from '../types';
+import { ALCOHOL_PREFERENCES } from '../constants';
+import { authFetch, getAuthToken } from '../utils/api';
 
 interface UserProfileModalProps {
   currentUser: User;
@@ -24,8 +26,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
     setPasskeyMsg('');
     setPasskeyRegistering(true);
 
-    const token = localStorage.getItem('cheers_token');
-    if (!token) {
+    if (!getAuthToken()) {
       setPasskeyMsg('❌ パスキーの登録にはログインが必要です');
       setPasskeyRegistering(false);
       return;
@@ -33,12 +34,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
 
     try {
       // 1. パスキー登録オプション・チャレンジ取得
-      const res = await fetch('/api/auth/passkey/register-options', {
+      const res = await authFetch('/api/auth/passkey/register-options', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({ userId: currentUser.id }),
       });
       const optionsData = await res.json();
@@ -48,12 +45,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
       const attResp = await startRegistration(optionsData);
 
       // 3. 署名検証とサーバDB保存
-      const verifyRes = await fetch('/api/auth/passkey/register-verify', {
+      const verifyRes = await authFetch('/api/auth/passkey/register-verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({ response: attResp }),
       });
       const verifyData = await verifyRes.json();
@@ -73,8 +66,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const token = localStorage.getItem('cheers_token');
-    if (!token) {
+    if (!getAuthToken()) {
       alert('プロフィールの更新にはログインが必要です。');
       return;
     }
@@ -82,12 +74,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
     setSaving(true);
 
     try {
-      const res = await fetch('/api/auth/profile', {
+      const res = await authFetch('/api/auth/profile', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           name,
           department,
@@ -199,11 +187,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
               onChange={(e) => setAlcoholPreference(e.target.value)}
               style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}
             >
-              <option value="ビール・ハイボール派">🍺 ビール・ハイボール派</option>
-              <option value="日本酒・焼酎党">🍶 日本酒・焼酎党</option>
-              <option value="クラフトビール・ワイン">🍷 クラフトビール・ワイン派</option>
-              <option value="サワー・カクテル派">🍹 サワー・カクテル派</option>
-              <option value="お酒は弱め・ソフトドリンク">ソフトドリンクメイン</option>
+              {ALCOHOL_PREFERENCES.map((pref) => (
+                <option key={pref.value} value={pref.value}>{pref.label}</option>
+              ))}
             </select>
           </div>
 

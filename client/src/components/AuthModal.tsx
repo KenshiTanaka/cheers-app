@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User as UserIcon, Building, MapPin, Beer, Utensils, Fingerprint } from 'lucide-react';
+import { X, Fingerprint } from 'lucide-react';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { User } from '../types';
+import { SHOP_CATEGORIES, ALCOHOL_PREFERENCES } from '../constants';
 
 interface AuthModalProps {
   onClose: () => void;
@@ -286,13 +287,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
               <div>
                 <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>お酒の好み</label>
                 <select value={alcoholPreference} onChange={(e) => setAlcoholPreference(e.target.value)} style={{ width: '100%', padding: '9px', borderRadius: '8px', background: '#1e293b', border: '1px solid #475569', color: '#fff' }}>
-                  <option value="ビール・クラフトビール派">🍺 ビール・クラフトビール派</option>
-                  <option value="サワー・チューハイ派">🍋 サワー・チューハイ派</option>
-                  <option value="ハイボール中心">🥃 ハイボール中心</option>
-                  <option value="焼酎・泡盛派">🍶 焼酎・泡盛派</option>
-                  <option value="日本酒派">🍶 日本酒派</option>
-                  <option value="ワイン・カクテル派">🍷 ワイン・カクテル派</option>
-                  <option value="ノンアルコール・ソフトドリンク中心">🥤 ノンアル中心</option>
+                  {ALCOHOL_PREFERENCES.map((pref) => (
+                    <option key={pref.value} value={pref.value}>{pref.label}</option>
+                  ))}
                 </select>
               </div>
 
@@ -312,18 +309,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onAuthSuccess }) 
                   borderRadius: '8px',
                   border: '1px solid #475569'
                 }}>
-                  {[
-                    '大衆酒場',
-                    '焼き鳥居酒屋',
-                    '海鮮居酒屋',
-                    'おでん専門店',
-                    '創作和食居酒屋',
-                    '家庭料理専門店',
-                    '立ち飲み居酒屋',
-                    '鍋料理専門店',
-                    '洋風バル',
-                    '韓国料理居酒屋'
-                  ].map((genre) => (
+                  {SHOP_CATEGORIES.map(({ value: genre }) => (
                     <label key={genre} style={{
                       display: 'flex',
                       alignItems: 'center',

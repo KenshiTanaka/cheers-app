@@ -1,6 +1,5 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
-import bcrypt from 'bcryptjs';
 import fs from 'fs';
 
 const dataDir = process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.resolve(__dirname, '../data');
@@ -13,11 +12,12 @@ console.log(`[DB] Using database file at: ${dbPath}`);
 
 export const db = new sqlite3.Database(dbPath);
 
-// ⚡ WALモード有効化 ＆ ビジータイムアウト (5秒) 設定で同時書き込み制限を回避
+// ⚡ WALモード有効化・外部キー制約・ビジータイムアウト (5秒) 設定
 db.serialize(() => {
   db.run('PRAGMA journal_mode = WAL;');
   db.run('PRAGMA busy_timeout = 5000;');
   db.run('PRAGMA synchronous = NORMAL;');
+  db.run('PRAGMA foreign_keys = ON;');
 });
 
 // 指数バックオフ付きリトライヘルパー (SQLITE_BUSY 対策)
@@ -145,62 +145,34 @@ export async function initDB() {
       // カラムが既に存在する場合は無視
     }
 
-    const row = await dbGet<{ count: number }>('SELECT count(*) as count FROM users');
-    if (!row || row.count === 0) {
-      console.log('[DB] Seeding initial user and shop data...');
-      const hashedPassword = bcrypt.hashSync('cheers123', 10);
-      
-      const resU1 = await dbRun(
-        'INSERT INTO users (email, password, name, department, favorite_area, alcohol_preference, favorite_food) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ['yamada@cheers.com', hashedPassword, '山田 太郎', '大手町現場', '大手町駅, 東京駅, 有楽町駅', 'ビール・ハイボール派', '居酒屋・焼き鳥']
-      );
+    // パフォーマンス最適化用インデックス作成
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_reviews_shop_id ON reviews(shop_id)');
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id)');
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_authenticators_user_id ON authenticators(user_id)');
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_shops_category ON shops(category)');
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_shops_private_room ON shops(private_room_type)');
 
-      const resU2 = await dbRun(
-        'INSERT INTO users (email, password, name, department, favorite_area, alcohol_preference, favorite_food) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ['sato@cheers.com', hashedPassword, '佐藤 美咲', '新宿現場', '新宿駅, 恵比寿駅, 渋谷駅', 'クラフトビール・ワイン', 'バル・イタリアン']
-      );
-
-      const resU3 = await dbRun(
-        'INSERT INTO users (email, password, name, department, favorite_area, alcohol_preference, favorite_food) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ['suzuki@cheers.com', hashedPassword, '鈴木 健太', '丸の内現場', '東京駅, 新橋駅, 品川駅', '日本酒・焼酎', '海鮮・和食']
-      );
-
-      const resS1 = await dbRun(
-        'INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['Craft Beer Tavern 新橋本店', 'ビアバル・居酒屋', '東京都港区新橋2-16-1', 35.6664, 139.7583, '新橋駅', 2, 90, 'あり', 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60', resU1.lastID]
-      );
-
-      const resS2 = await dbRun(
-        'INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['個室和食 旬彩 恵比寿店', '個室和食・日本酒', '東京都渋谷区恵比寿1-10-8', 35.6467, 139.7101, '恵比寿駅', 4, 100, 'あり', 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=60', resU2.lastID]
-      );
-
-      const resS3 = await dbRun(
-        'INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['ネオ大衆酒場 チアーズ横丁 渋谷', '大衆酒場・焼き鳥', '東京都渋谷区道玄坂1-5-9', 35.6580, 139.6990, '渋谷駅', 3, 75, '半個室', 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800&auto=format&fit=crop&q=60', resU3.lastID]
+    // 店舗が0件の完全初回起動時のみ初期店舗データを投入（ユーザー削除後にダミーユーザーが復活するのを防止）
+    const shopRow = await dbGet<{ count: number }>('SELECT count(*) as count FROM shops');
+    if (!shopRow || shopRow.count === 0) {
+      console.log('[DB] Seeding initial shop data...');
+      await dbRun(
+        'INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['Craft Beer Tavern 新橋本店', '洋風バル', '東京都港区新橋2-16-1', 35.6664, 139.7583, '新橋駅', 2, 90, 'あり', 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60']
       );
 
       await dbRun(
-        'INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [resS1.lastID, resU1.lastID, 5, 5, 5, 4, 4500, 'クラフトビールの種類が20種類以上あって最高！金曜の懇親会に超オススメです。個室もあります。']
+        'INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['個室和食 旬彩 恵比寿店', '創作和食居酒屋', '東京都渋谷区恵比寿1-10-8', 35.6467, 139.7101, '恵比寿駅', 4, 100, 'あり', 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=60']
       );
 
       await dbRun(
-        'INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [resS1.lastID, resU2.lastID, 4, 5, 5, 3, 5000, 'おしゃれな雰囲気でビールが進みます！日本人店員さんも親切でした。']
-      );
-
-      await dbRun(
-        'INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [resS2.lastID, resU2.lastID, 5, 4, 4, 4, 6000, '日本酒の品揃えが豊富。静かな個室で落ち着いて話せるので、役員同席の飲み会にも使えます。']
-      );
-
-      await dbRun(
-        'INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [resS3.lastID, resU3.lastID, 4, 4, 4, 5, 3200, 'とにかくコスパが良い！飲み放題の種類が多くて若いメンバーの歓送迎会にぴったりでした。']
+        'INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['ネオ大衆酒場 チアーズ横丁 渋谷', '大衆酒場', '東京都渋谷区道玄坂1-5-9', 35.6580, 139.6990, '渋谷駅', 3, 75, '半個室', 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800&auto=format&fit=crop&q=60']
       );
     }
   } catch (error) {
     console.error('[DB] Initialization error:', error);
+    throw error;
   }
 }

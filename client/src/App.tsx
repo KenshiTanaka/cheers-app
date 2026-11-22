@@ -1,17 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { ShopCard } from './components/ShopCard';
 import { ShopDetailModal } from './components/ShopDetailModal';
 import { AddShopModal } from './components/AddShopModal';
 import { AuthModal } from './components/AuthModal';
 import { UserProfileModal } from './components/UserProfileModal';
+import { BubblesBackground } from './components/BubblesBackground';
 import { Shop, User } from './types';
-import { Search, Filter, Sparkles, Award, MapPin, Beer, Trophy } from 'lucide-react';
+import { SHOP_CATEGORIES } from './constants';
+import { authFetch } from './utils/api';
+import { Search, Sparkles, Beer } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [shops, setShops] = useState<Shop[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // フィルター＆検索ステート
   const [search, setSearch] = useState('');
@@ -19,11 +23,23 @@ export const App: React.FC = () => {
   const [privateRoom, setPrivateRoom] = useState('すべて');
   const [sort, setSort] = useState('rating');
 
+  // AIベクトルおすすめ検索ステート
+  const [aiMode, setAiMode] = useState(false);
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiTitle, setAiTitle] = useState('');
+
   // モーダルステート
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const [showAddShop, setShowAddShop] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+
+  const handleLogout = useCallback(() => {
+    setUser(null);
+    setShops([]);
+    localStorage.removeItem('cheers_token');
+    localStorage.removeItem('cheers_user');
+  }, []);
 
   // 初期化（ログインチェック & トークン有効性検証）
   useEffect(() => {
@@ -33,36 +49,31 @@ export const App: React.FC = () => {
 
       if (savedToken) {
         try {
-          const res = await fetch('/api/auth/me', {
-            headers: { Authorization: `Bearer ${savedToken}` }
-          });
+          const res = await authFetch('/api/auth/me');
           if (res.ok) {
             const userData = await res.json();
             setUser(userData);
             localStorage.setItem('cheers_user', JSON.stringify(userData));
           } else {
-            // トークン期限切れ
             handleLogout();
           }
-        } catch (e) {
-          if (savedUser) setUser(JSON.parse(savedUser));
+        } catch {
+          if (savedUser) {
+            try {
+              setUser(JSON.parse(savedUser));
+            } catch {
+              handleLogout();
+            }
+          }
         }
       }
+      setAuthChecked(true);
     };
 
     checkAuth();
-  }, []);
+  }, [handleLogout]);
 
-  useEffect(() => {
-    fetchShops();
-  }, [category, privateRoom, sort]);
-
-  // AIベクトルおすすめ検索ステート
-  const [aiMode, setAiMode] = useState(false);
-  const [aiQuery, setAiQuery] = useState('');
-  const [aiTitle, setAiTitle] = useState('');
-
-  const fetchShops = async () => {
+  const fetchShops = useCallback(async () => {
     setLoading(true);
     setAiMode(false);
     try {
@@ -70,9 +81,13 @@ export const App: React.FC = () => {
       if (category) params.append('category', category);
       if (privateRoom !== 'すべて') params.append('private_room', privateRoom);
       if (sort) params.append('sort', sort);
-      if (search) params.append('search', search);
+      if (search.trim()) params.append('search', search.trim());
 
-      const res = await fetch(`/api/shops?${params.toString()}`);
+      const res = await authFetch(`/api/shops?${params.toString()}`);
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setShops(data);
@@ -82,74 +97,72 @@ export const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [category, privateRoom, sort, search, handleLogout]);
+
+  // ログイン済みの場合のみ店舗一覧を取得（フィルター・ソート変更時に再取得）
+  useEffect(() => {
+    if (!user) return;
+    fetchShops();
+  }, [user, category, privateRoom, sort]);
 
   // AIベクトル推薦の取得
-  const fetchRecommendShops = async (customQuery?: string) => {
+  const fetchRecommendShops = useCallback(async (customQuery?: string) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       const textToSearch = customQuery !== undefined ? customQuery : aiQuery;
-      if (textToSearch) params.append('query', textToSearch);
-      if (user?.id) params.append('user_id', String(user.id));
+      if (textToSearch.trim()) params.append('query', textToSearch.trim());
 
-      const token = localStorage.getItem('cheers_token');
-      const res = await fetch(`/api/shops/recommend?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await authFetch(`/api/shops/recommend?${params.toString()}`);
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setShops(data);
         setAiMode(true);
         if (customQuery !== undefined) setAiQuery(customQuery);
-        setAiTitle(textToSearch ? `「${textToSearch}」のニュアンスに近いおすすめ` : 'あなたのお好みプロフィールに基づくおすすめ');
+        setAiTitle(textToSearch.trim() ? `「${textToSearch.trim()}」のニュアンスに近いおすすめ` : 'あなたのお好みプロフィールに基づくおすすめ');
       }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [aiQuery, handleLogout]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     fetchShops();
   };
 
-  const handleAuthSuccess = (loggedUser: User, token: string) => {
+  const handleAuthSuccess = useCallback((loggedUser: User, token: string) => {
     setUser(loggedUser);
     localStorage.setItem('cheers_token', token);
     localStorage.setItem('cheers_user', JSON.stringify(loggedUser));
-  };
+  }, []);
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('cheers_token');
-    localStorage.removeItem('cheers_user');
-  };
+  const handleSelectShop = useCallback((shopId: number) => {
+    setSelectedShopId(shopId);
+  }, []);
+
+  if (!authChecked) {
+    return (
+      <div className="container">
+        <BubblesBackground />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#94a3b8' }}>
+          読み込み中...
+        </div>
+      </div>
+    );
+  }
 
   // 未ログイン時: ログイン必須画面を表示
   if (!user) {
     return (
       <div className="container">
-        {/* 炭酸の泡アニメーション背景 */}
-        <div className="bubbles-container">
-          {[...Array(15)].map((_, i) => (
-            <div
-              key={i}
-              className="bubble"
-              style={{
-                left: `${Math.random() * 100}%`,
-                width: `${Math.random() * 20 + 10}px`,
-                height: `${Math.random() * 20 + 10}px`,
-                animationDuration: `${Math.random() * 4 + 3}s`,
-                animationDelay: `${Math.random() * 2}s`
-              }}
-            />
-          ))}
-        </div>
+        <BubblesBackground />
 
         {/* ログイン要求画面 */}
         <div style={{
@@ -216,22 +229,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="container">
-      {/* 炭酸の泡アニメーション背景 */}
-      <div className="bubbles-container">
-        {[...Array(15)].map((_, i) => (
-          <div
-            key={i}
-            className="bubble"
-            style={{
-              left: `${Math.random() * 100}%`,
-              width: `${Math.random() * 20 + 10}px`,
-              height: `${Math.random() * 20 + 10}px`,
-              animationDuration: `${Math.random() * 4 + 3}s`,
-              animationDelay: `${Math.random() * 2}s`
-            }}
-          />
-        ))}
-      </div>
+      <BubblesBackground />
 
       {/* ヘッダー */}
       <Header
@@ -419,16 +417,9 @@ export const App: React.FC = () => {
             style={{ padding: '10px', borderRadius: '8px', background: '#451a03', border: '1px solid #92400e', color: '#fff', fontSize: '0.85rem' }}
           >
             <option value="">すべてのジャンル</option>
-            <option value="大衆酒場">🍺 大衆酒場</option>
-            <option value="焼き鳥居酒屋">🍢 焼き鳥居酒屋</option>
-            <option value="海鮮居酒屋">🐟 海鮮居酒屋</option>
-            <option value="おでん専門店">🍢 おでん専門店</option>
-            <option value="創作和食居酒屋">🍣 創作和食居酒屋</option>
-            <option value="家庭料理専門店">🍱 家庭料理専門店</option>
-            <option value="立ち飲み居酒屋">🍻 立ち飲み居酒屋</option>
-            <option value="鍋料理専門店">🍲 鍋料理専門店</option>
-            <option value="洋風バル">🍷 洋風バル</option>
-            <option value="韓国料理居酒屋">🇰🇷 韓国料理居酒屋</option>
+            {SHOP_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
           </select>
 
           {/* 個室フィルター */}
@@ -472,7 +463,7 @@ export const App: React.FC = () => {
             <ShopCard
               key={shop.id}
               shop={shop}
-              onClick={() => setSelectedShopId(shop.id)}
+              onSelect={handleSelectShop}
             />
           ))}
         </div>

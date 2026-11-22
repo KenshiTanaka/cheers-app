@@ -1,41 +1,57 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
+import dotenv from 'dotenv';
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../../data/database.sqlite');
+dotenv.config();
+
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../../data/database.sqlite');
 const db = new sqlite3.Database(dbPath);
 
 console.log(`Connecting to database at ${dbPath}...`);
 
-db.serialize(() => {
-  console.log('Clearing user-related data...');
-
-  // Delete all users and related data (reviews, passkeys, interactions)
-  db.run('DELETE FROM reviews', (err) => {
-    if (err) console.error('Error clearing reviews:', err);
-    else console.log('✅ Reviews cleared.');
+function runSql(sql: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    db.run(sql, function (err) {
+      if (err) reject(err);
+      else resolve(this.changes);
+    });
   });
+}
 
-  db.run('DELETE FROM webauthn_credentials', (err) => {
-    if (err) console.error('Error clearing webauthn_credentials:', err);
-    else console.log('✅ Passkeys (webauthn_credentials) cleared.');
-  });
+async function clearUsers() {
+  try {
+    await runSql('PRAGMA foreign_keys = ON');
+    await runSql('BEGIN TRANSACTION');
 
-  db.run('DELETE FROM user_interactions', (err) => {
-    if (err) console.error('Error clearing user_interactions:', err);
-    else console.log('✅ User interactions cleared.');
-  });
+    console.log('Clearing user-related data...');
 
-  db.run('DELETE FROM users', (err) => {
-    if (err) console.error('Error clearing users:', err);
-    else console.log('✅ Users cleared.');
-  });
+    const deletedReviews = await runSql('DELETE FROM reviews');
+    console.log(`✅ Reviews cleared (${deletedReviews} rows).`);
 
-});
+    const deletedAuthenticators = await runSql('DELETE FROM authenticators');
+    console.log(`✅ Passkeys (authenticators) cleared (${deletedAuthenticators} rows).`);
 
-db.close((err) => {
-  if (err) {
-    console.error('Error closing database:', err);
-  } else {
+    // shops.created_by の参照をクリアしてからユーザーを削除
+    await runSql('UPDATE shops SET created_by = NULL WHERE created_by IS NOT NULL');
+
+    const deletedUsers = await runSql('DELETE FROM users');
+    console.log(`✅ Users cleared (${deletedUsers} rows).`);
+
+    await runSql('COMMIT');
     console.log('🎉 All user data has been successfully deleted.');
+  } catch (err) {
+    console.error('❌ Error clearing user data. Rolling back...', err);
+    try {
+      await runSql('ROLLBACK');
+    } catch {
+      // ignore rollback error
+    }
+    process.exitCode = 1;
+  } finally {
+    db.close((err) => {
+      if (err) console.error('Error closing database:', err);
+    });
   }
-});
+}
+
+clearUsers();

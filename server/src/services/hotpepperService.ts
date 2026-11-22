@@ -1,8 +1,9 @@
 // ホットペッパーグルメサーチAPI サービス
 // https://webservice.recruit.co.jp/doc/hotpepper/reference.html
 
-const HOTPEPPER_API_KEY = process.env.HOTPEPPER_API_KEY || '5c026a6238e0e4b8';
 const HOTPEPPER_BASE_URL = 'https://webservice.recruit.co.jp/hotpepper/gourmet/v1/';
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5分キャッシュ
+const MAX_CACHE_SIZE = 200;
 
 export interface HotPepperShop {
   id: string;
@@ -19,11 +20,24 @@ export interface HotPepperShop {
   url: string;
 }
 
+const searchCache = new Map<string, { data: HotPepperShop[]; expiresAt: number }>();
+
 // 店舗名キーワードで検索
 export async function searchShopByName(keyword: string): Promise<HotPepperShop[]> {
+  const apiKey = process.env.HOTPEPPER_API_KEY;
+  if (!apiKey) {
+    throw new Error('HOTPEPPER_API_KEY が環境変数に設定されていません。');
+  }
+
+  const normalizedKey = keyword.trim().toLowerCase();
+  const cached = searchCache.get(normalizedKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   const params = new URLSearchParams({
-    key: HOTPEPPER_API_KEY,
-    keyword: keyword,
+    key: apiKey,
+    keyword: keyword.trim(),
     format: 'json',
     count: '5',
   });
@@ -31,7 +45,9 @@ export async function searchShopByName(keyword: string): Promise<HotPepperShop[]
   const url = `${HOTPEPPER_BASE_URL}?${params.toString()}`;
   console.log(`[HotPepper] Searching: ${keyword}`);
 
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(8000),
+  });
 
   if (!res.ok) {
     const text = await res.text();
@@ -49,7 +65,7 @@ export async function searchShopByName(keyword: string): Promise<HotPepperShop[]
 
   console.log(`[HotPepper] Found ${shops.length} results for: ${keyword}`);
 
-  return shops.map((shop: any) => ({
+  const mapped: HotPepperShop[] = shops.map((shop: any) => ({
     id: shop.id || '',
     name: shop.name || '',
     address: shop.address || '',
@@ -63,4 +79,12 @@ export async function searchShopByName(keyword: string): Promise<HotPepperShop[]
     photo_url: shop.photo?.pc?.l || shop.photo?.mobile?.l || '',
     url: shop.urls?.pc || '',
   }));
+
+  if (searchCache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = searchCache.keys().next().value;
+    if (oldestKey !== undefined) searchCache.delete(oldestKey);
+  }
+  searchCache.set(normalizedKey, { data: mapped, expiresAt: Date.now() + CACHE_TTL_MS });
+
+  return mapped;
 }

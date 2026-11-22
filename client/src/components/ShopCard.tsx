@@ -1,17 +1,18 @@
 import React from 'react';
 import { Star, MapPin, Users, DoorClosed, JapaneseYen, Utensils, GlassWater, Sparkles } from 'lucide-react';
 import { Shop } from '../types';
+import { DEFAULT_SHOP_IMAGE } from '../constants';
 
 interface ShopCardProps {
   shop: Shop;
-  onClick: () => void;
+  onSelect: (shopId: number) => void;
 }
 
-export const ShopCard: React.FC<ShopCardProps> = React.memo(({ shop, onClick }) => {
+export const ShopCard: React.FC<ShopCardProps> = React.memo(({ shop, onSelect }) => {
   return (
     <div
       className="glass-panel animate-fade-in"
-      onClick={onClick}
+      onClick={() => onSelect(shop.id)}
       style={{
         cursor: 'pointer',
         overflow: 'hidden',
@@ -24,8 +25,9 @@ export const ShopCard: React.FC<ShopCardProps> = React.memo(({ shop, onClick }) 
       {/* 画像 ＆ バッジ */}
       <div style={{ position: 'relative', height: '180px', width: '100%', overflow: 'hidden' }}>
         <img
-          src={shop.image_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60'}
+          src={shop.image_url || DEFAULT_SHOP_IMAGE}
           alt={shop.name}
+          loading="lazy"
           style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
           onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.05)')}
           onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1.0)')}

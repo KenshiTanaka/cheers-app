@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { X, Star, MapPin, Users, DoorClosed, JapaneseYen, Utensils, GlassWater, Sparkles, Send, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Star, MapPin, JapaneseYen, Utensils, GlassWater, Sparkles, Send, MessageSquare } from 'lucide-react';
 import { Shop, User } from '../types';
+import { DEFAULT_SHOP_IMAGE } from '../constants';
+import { authFetch, getAuthToken } from '../utils/api';
 
 interface ShopDetailModalProps {
   shopId: number | null;
@@ -23,45 +25,50 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (shopId) {
-      fetchShopDetail();
-    }
-  }, [shopId]);
-
-  const fetchShopDetail = async () => {
+  const fetchShopDetail = useCallback(async (signal?: AbortSignal) => {
+    if (!shopId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/shops/${shopId}`);
+      const res = await authFetch(`/api/shops/${shopId}`, { signal });
       if (res.ok) {
         const data = await res.json();
         setShop(data);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') console.error(e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [shopId]);
+
+  useEffect(() => {
+    if (!shopId) return;
+    const controller = new AbortController();
+    fetchShopDetail(controller.signal);
+    return () => controller.abort();
+  }, [shopId, fetchShopDetail]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shopId) return;
 
-    const token = localStorage.getItem('cheers_token');
-    if (!token) {
+    if (!getAuthToken()) {
       alert('レビュー投稿にはログインが必要です。');
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/shops/${shopId}/reviews`, {
+      const res = await authFetch(`/api/shops/${shopId}/reviews`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           taste_rating: taste,
           atmosphere_rating: atmosphere,
@@ -91,7 +98,9 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
   if (!shopId) return null;
 
   return (
-    <div style={{
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
       position: 'fixed',
       inset: 0,
       background: 'rgba(0, 0, 0, 0.8)',
@@ -135,7 +144,7 @@ export const ShopDetailModal: React.FC<ShopDetailModalProps> = ({ shopId, curren
             {/* ヘッダー画像・タイトル */}
             <div style={{ position: 'relative', height: '240px', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
               <img
-                src={shop.image_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60'}
+                src={shop.image_url || DEFAULT_SHOP_IMAGE}
                 alt={shop.name}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />

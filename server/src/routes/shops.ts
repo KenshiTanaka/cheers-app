@@ -7,52 +7,69 @@ import { authMiddleware, AuthenticatedRequest } from './auth';
 
 export const shopsRouter = Router();
 
+// 全店舗APIに認証ミドルウェアを適用（社内限定データの保護）
+shopsRouter.use(authMiddleware);
+
+const SHOP_WITH_STATS_SELECT = `
+  SELECT 
+    s.*,
+    u.name as creator_name,
+    COALESCE(AVG(r.taste_rating), 0) as avg_taste,
+    COALESCE(AVG(r.atmosphere_rating), 0) as avg_atmosphere,
+    COALESCE(AVG(r.drink_rating), 0) as avg_drink,
+    COALESCE(AVG(r.price_rating), 0) as avg_price,
+    COALESCE(AVG((r.taste_rating + r.atmosphere_rating + r.drink_rating + r.price_rating) / 4.0), 0) as overall_rating,
+    COUNT(r.id) as review_count,
+    COALESCE(AVG(r.cost_per_person), 4000) as avg_cost
+  FROM shops s
+  LEFT JOIN users u ON s.created_by = u.id
+  LEFT JOIN reviews r ON s.id = r.shop_id
+`;
+
+const DEFAULT_SHOP_IMAGE = 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60';
+
+function isValidRating(val: unknown): boolean {
+  const num = Number(val);
+  return Number.isInteger(num) && num >= 1 && num <= 5;
+}
+
 // セマンティック・ベクトル検索レコメンド API
-shopsRouter.get('/recommend', authMiddleware, async (req: AuthenticatedRequest, res) => {
+shopsRouter.get('/recommend', async (req: AuthenticatedRequest, res) => {
   try {
-    const { query, user_id } = req.query;
+    const query = typeof req.query.query === 'string' ? req.query.query : '';
+    let targetText = query;
 
-    let targetText = (query as string) || '';
-
-    if (user_id) {
-      const user = await dbGet('SELECT * FROM users WHERE id = ?', [user_id]);
-      if (user) {
-        targetText += ` ${user.favorite_area || ''} ${user.alcohol_preference || ''} ${user.favorite_food || ''}`;
-      }
+    // セキュリティ対策: クエリパラメータではなく認証済みトークンのユーザーIDを使用
+    const userId = req.user!.id;
+    const user = await dbGet('SELECT favorite_area, alcohol_preference, favorite_food FROM users WHERE id = ?', [userId]);
+    if (user && !targetText.trim()) {
+      targetText = `${user.favorite_area || ''} ${user.alcohol_preference || ''} ${user.favorite_food || ''}`;
+    } else if (user) {
+      targetText += ` ${user.favorite_area || ''} ${user.alcohol_preference || ''} ${user.favorite_food || ''}`;
     }
 
     if (!targetText.trim()) {
       targetText = '個室 居酒屋 ビール 日本酒 焼酎 美味しい コスパ';
     }
 
-    const shops = await dbAll(`
-      SELECT 
-        s.*,
-        u.name as creator_name,
-        COALESCE(AVG(r.taste_rating), 0) as avg_taste,
-        COALESCE(AVG(r.atmosphere_rating), 0) as avg_atmosphere,
-        COALESCE(AVG(r.drink_rating), 0) as avg_drink,
-        COALESCE(AVG(r.price_rating), 0) as avg_price,
-        COALESCE(AVG((r.taste_rating + r.atmosphere_rating + r.drink_rating + r.price_rating) / 4.0), 0) as overall_rating,
-        COUNT(r.id) as review_count,
-        COALESCE(AVG(r.cost_per_person), 4000) as avg_cost
-      FROM shops s
-      LEFT JOIN users u ON s.created_by = u.id
-      LEFT JOIN reviews r ON s.id = r.shop_id
-      GROUP BY s.id
-    `);
+    const [shops, allReviews] = await Promise.all([
+      dbAll(`${SHOP_WITH_STATS_SELECT} GROUP BY s.id`),
+      dbAll('SELECT shop_id, comment FROM reviews')
+    ]);
 
-    const allReviews = await dbAll('SELECT shop_id, comment FROM reviews');
     const reviewsByShop = new Map<number, Array<{ comment: string }>>();
     for (const rev of allReviews) {
-      if (!reviewsByShop.has(rev.shop_id)) {
-        reviewsByShop.set(rev.shop_id, []);
+      const list = reviewsByShop.get(rev.shop_id);
+      if (list) {
+        list.push({ comment: rev.comment });
+      } else {
+        reviewsByShop.set(rev.shop_id, [{ comment: rev.comment }]);
       }
-      reviewsByShop.get(rev.shop_id)!.push({ comment: rev.comment });
     }
 
     const shopsWithReviews = shops.map(s => ({
       shop_id: s.id,
+      metadataText: `${s.name} ${s.category} ${s.station_name} ${s.address} ${s.private_room_type === 'あり' ? '個室' : s.private_room_type === '半個室' ? '半個室' : ''}`,
       reviews: reviewsByShop.get(s.id) || []
     }));
 
@@ -60,7 +77,7 @@ shopsRouter.get('/recommend', authMiddleware, async (req: AuthenticatedRequest, 
 
     const rankedShops = shops.map(shop => {
       const vecResult = rankMap.get(shop.id) || {
-        score: 50,
+        score: 35,
         matched_comment: '',
         matched_reasons: []
       };
@@ -70,7 +87,7 @@ shopsRouter.get('/recommend', authMiddleware, async (req: AuthenticatedRequest, 
         matched_comment: vecResult.matched_comment,
         matched_reasons: vecResult.matched_reasons
       };
-    }).sort((a, b) => b.vector_score - a.vector_score);
+    }).sort((a, b) => b.vector_score - a.vector_score || b.overall_rating - a.overall_rating);
 
     return res.json(rankedShops.slice(0, 30));
   } catch (error: any) {
@@ -82,7 +99,7 @@ shopsRouter.get('/recommend', authMiddleware, async (req: AuthenticatedRequest, 
 // ホットペッパーAPIで店舗名から住所・最寄り駅を検索する API
 shopsRouter.get('/search-place', async (req, res) => {
   try {
-    const name = req.query.name as string;
+    const name = typeof req.query.name === 'string' ? req.query.name.trim() : '';
     if (!name) {
       return res.status(400).json({ error: '店舗名を入力してください。' });
     }
@@ -146,23 +163,7 @@ shopsRouter.get('/', async (req, res) => {
   try {
     const { category, private_room, station, sort, search } = req.query;
 
-    let query = `
-      SELECT 
-        s.*,
-        u.name as creator_name,
-        COALESCE(AVG(r.taste_rating), 0) as avg_taste,
-        COALESCE(AVG(r.atmosphere_rating), 0) as avg_atmosphere,
-        COALESCE(AVG(r.drink_rating), 0) as avg_drink,
-        COALESCE(AVG(r.price_rating), 0) as avg_price,
-        COALESCE(AVG((r.taste_rating + r.atmosphere_rating + r.drink_rating + r.price_rating) / 4.0), 0) as overall_rating,
-        COUNT(r.id) as review_count,
-        COALESCE(AVG(r.cost_per_person), 4000) as avg_cost
-      FROM shops s
-      LEFT JOIN users u ON s.created_by = u.id
-      LEFT JOIN reviews r ON s.id = r.shop_id
-      WHERE 1=1
-    `;
-
+    let query = `${SHOP_WITH_STATS_SELECT} WHERE 1=1`;
     const params: any[] = [];
 
     if (category) {
@@ -181,16 +182,16 @@ shopsRouter.get('/', async (req, res) => {
     }
 
     if (search) {
-      query += ` AND (s.name LIKE ? OR s.address LIKE ? OR s.category LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      query += ` AND (s.name LIKE ? OR s.address LIKE ? OR s.category LIKE ? OR s.station_name LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     query += ` GROUP BY s.id`;
 
     if (sort === 'rating') {
-      query += ` ORDER BY overall_rating DESC`;
+      query += ` ORDER BY overall_rating DESC, review_count DESC`;
     } else if (sort === 'reviews') {
-      query += ` ORDER BY review_count DESC`;
+      query += ` ORDER BY review_count DESC, overall_rating DESC`;
     } else if (sort === 'price_asc') {
       query += ` ORDER BY avg_cost ASC`;
     } else {
@@ -200,6 +201,7 @@ shopsRouter.get('/', async (req, res) => {
     const shops = await dbAll(query, params);
     return res.json(shops);
   } catch (error: any) {
+    console.error('[GET /shops] Error:', error);
     return res.status(500).json({ error: '店舗情報の取得中にエラーが発生しました。' });
   }
 });
@@ -207,58 +209,51 @@ shopsRouter.get('/', async (req, res) => {
 // 単一店舗詳細 ＆ レビュー一覧
 shopsRouter.get('/:id', async (req, res) => {
   try {
-    const shopId = req.params.id;
-    const shop = await dbGet(`
-      SELECT 
-        s.*,
-        u.name as creator_name,
-        COALESCE(AVG(r.taste_rating), 0) as avg_taste,
-        COALESCE(AVG(r.atmosphere_rating), 0) as avg_atmosphere,
-        COALESCE(AVG(r.drink_rating), 0) as avg_drink,
-        COALESCE(AVG(r.price_rating), 0) as avg_price,
-        COALESCE(AVG((r.taste_rating + r.atmosphere_rating + r.drink_rating + r.price_rating) / 4.0), 0) as overall_rating,
-        COUNT(r.id) as review_count,
-        COALESCE(AVG(r.cost_per_person), 4000) as avg_cost
-      FROM shops s
-      LEFT JOIN users u ON s.created_by = u.id
-      LEFT JOIN reviews r ON s.id = r.shop_id
-      WHERE s.id = ?
-      GROUP BY s.id
-    `, [shopId]);
+    const shopId = Number(req.params.id);
+    if (!Number.isInteger(shopId) || shopId <= 0) {
+      return res.status(400).json({ error: '無効な店舗IDです。' });
+    }
+
+    const [shop, reviews] = await Promise.all([
+      dbGet(`${SHOP_WITH_STATS_SELECT} WHERE s.id = ? GROUP BY s.id`, [shopId]),
+      dbAll(`
+        SELECT r.*, 
+               CASE WHEN r.is_anonymous = 1 THEN '匿名さん' ELSE COALESCE(u.name, '社内メンバー') END as reviewer_name, 
+               CASE WHEN r.is_anonymous = 1 THEN '' ELSE u.department END as reviewer_department, 
+               CASE WHEN r.is_anonymous = 1 THEN '' ELSE u.alcohol_preference END as reviewer_alcohol
+        FROM reviews r
+        LEFT JOIN users u ON r.user_id = u.id
+        WHERE r.shop_id = ?
+        ORDER BY r.created_at DESC
+      `, [shopId])
+    ]);
 
     if (!shop) {
       return res.status(404).json({ error: '店舗が見つかりません。' });
     }
 
-    const reviews = await dbAll(`
-      SELECT r.*, 
-             CASE WHEN r.is_anonymous = 1 THEN '匿名さん' ELSE COALESCE(u.name, '社内メンバー') END as reviewer_name, 
-             CASE WHEN r.is_anonymous = 1 THEN '' ELSE u.department END as reviewer_department, 
-             CASE WHEN r.is_anonymous = 1 THEN '' ELSE u.alcohol_preference END as reviewer_alcohol
-      FROM reviews r
-      LEFT JOIN users u ON r.user_id = u.id
-      WHERE r.shop_id = ?
-      ORDER BY r.created_at DESC
-    `, [shopId]);
-
     return res.json({ ...shop, reviews });
   } catch (error: any) {
+    console.error('[GET /shops/:id] Error:', error);
     return res.status(500).json({ error: '店舗詳細の取得中にエラーが発生しました。' });
   }
 });
 
-// 新規店舗登録 API (認証保護 & 重複防止チェック付き)
-shopsRouter.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
+// 新規店舗登録 API (重複防止チェック付き)
+shopsRouter.post('/', async (req: AuthenticatedRequest, res) => {
   try {
     const { name, category, address, station_name, walk_minutes, lat, lng, japanese_staff_ratio, private_room_type, image_url } = req.body;
     const userId = req.user!.id;
 
-    if (!name || !address) {
+    if (!name || !address || !String(name).trim() || !String(address).trim()) {
       return res.status(400).json({ error: '店舗名と住所は必須です。' });
     }
 
+    const trimmedName = String(name).trim();
+    const trimmedAddress = String(address).trim();
+
     // 🔍 既存の同名店舗または同一住所の店舗がないかチェック
-    const existingShop = await dbGet<any>('SELECT id, name, address FROM shops WHERE name = ? OR address = ?', [name.trim(), address.trim()]);
+    const existingShop = await dbGet<any>('SELECT id, name, address FROM shops WHERE name = ? OR address = ?', [trimmedName, trimmedAddress]);
     if (existingShop) {
       return res.status(409).json({
         error: `店舗「${existingShop.name}」は既に登録されています。既存の店舗ページからレビューを追加してください。`,
@@ -267,50 +262,66 @@ shopsRouter.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => 
     }
 
     let finalStationName = station_name || '';
-    let finalWalkMinutes = walk_minutes !== undefined ? Number(walk_minutes) : 3;
-    let finalLat = lat || 0;
-    let finalLng = lng || 0;
+    let finalWalkMinutes = walk_minutes !== undefined && walk_minutes !== '' ? Math.max(1, Number(walk_minutes)) : 3;
+    const finalLat = Number(lat) || 0;
+    const finalLng = Number(lng) || 0;
 
-    if (finalLat && finalLng && !station_name) {
+    if (finalLat && finalLng && !finalStationName) {
       const stationResult = findNearestStation(finalLat, finalLng);
       finalStationName = stationResult.station_name;
       finalWalkMinutes = stationResult.walk_minutes;
     }
 
+    const staffRatio = japanese_staff_ratio !== undefined
+      ? Math.min(100, Math.max(0, Number(japanese_staff_ratio)))
+      : 100;
+
     const result = await dbRun(`
       INSERT INTO shops (name, category, address, lat, lng, station_name, walk_minutes, japanese_staff_ratio, private_room_type, image_url, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      name.trim(),
+      trimmedName,
       category || '大衆酒場',
-      address.trim(),
+      trimmedAddress,
       finalLat,
       finalLng,
       finalStationName,
       finalWalkMinutes,
-      japanese_staff_ratio !== undefined ? Number(japanese_staff_ratio) : 100,
+      staffRatio,
       private_room_type || 'なし',
-      image_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&auto=format&fit=crop&q=60',
+      image_url || DEFAULT_SHOP_IMAGE,
       userId
     ]);
 
     const createdShop = await dbGet('SELECT * FROM shops WHERE id = ?', [result.lastID]);
-    return res.json(createdShop);
+    return res.status(201).json(createdShop);
   } catch (error: any) {
+    console.error('[POST /shops] Error:', error);
     return res.status(500).json({ error: '店舗登録に失敗しました。' });
   }
 });
 
-// 評価レビュー投稿 API (認証保護)
-shopsRouter.post('/:id/reviews', authMiddleware, async (req: AuthenticatedRequest, res) => {
+// 評価レビュー投稿 API
+shopsRouter.post('/:id/reviews', async (req: AuthenticatedRequest, res) => {
   try {
-    const shopId = req.params.id;
+    const shopId = Number(req.params.id);
+    if (!Number.isInteger(shopId) || shopId <= 0) {
+      return res.status(400).json({ error: '無効な店舗IDです。' });
+    }
+
+    const shopExists = await dbGet('SELECT id FROM shops WHERE id = ?', [shopId]);
+    if (!shopExists) {
+      return res.status(404).json({ error: '対象の店舗が見つかりません。' });
+    }
+
     const userId = req.user!.id;
     const { taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment, is_anonymous } = req.body;
 
-    if (!taste_rating || !atmosphere_rating || !drink_rating || !price_rating) {
-      return res.status(400).json({ error: 'すべての5段階評価項目を入力してください。' });
+    if (!isValidRating(taste_rating) || !isValidRating(atmosphere_rating) || !isValidRating(drink_rating) || !isValidRating(price_rating)) {
+      return res.status(400).json({ error: 'すべての評価項目を1〜5の整数で入力してください。' });
     }
+
+    const cost = cost_per_person ? Math.max(0, Number(cost_per_person)) : 4000;
 
     const result = await dbRun(`
       INSERT INTO reviews (shop_id, user_id, taste_rating, atmosphere_rating, drink_rating, price_rating, cost_per_person, comment, is_anonymous)
@@ -322,14 +333,15 @@ shopsRouter.post('/:id/reviews', authMiddleware, async (req: AuthenticatedReques
       Number(atmosphere_rating),
       Number(drink_rating),
       Number(price_rating),
-      cost_per_person ? Number(cost_per_person) : 4000,
+      cost,
       comment || '',
       is_anonymous ? 1 : 0
     ]);
 
     const newReview = await dbGet('SELECT * FROM reviews WHERE id = ?', [result.lastID]);
-    return res.json(newReview);
+    return res.status(201).json(newReview);
   } catch (error: any) {
+    console.error('[POST /shops/:id/reviews] Error:', error);
     return res.status(500).json({ error: 'レビュー投稿に失敗しました。' });
   }
 });

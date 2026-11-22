@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # ===== 本番ステージ（Nginx） =====
-FROM nginx:alpine
+FROM nginx:alpine AS prod
 # ビルド成果物をNginxに配置
 COPY --from=build /app/dist /usr/share/nginx/html
 # Nginx設定（APIプロキシ含む）
